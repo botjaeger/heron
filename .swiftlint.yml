@@ -1,0 +1,106 @@
+# SwiftLint: the linter. `swift format` (.swift-format) owns layout; this file owns code smells
+# and the AGENTS.md product rules that a regex can check. Reasons for each choice: docs/tooling.md.
+# Run: scripts/check.sh (gate), scripts/check.sh --fix (autofix).
+
+included:
+  - Sources
+  - Tests
+  - Package.swift
+excluded:
+  - .build
+  - dist
+
+disabled_rules:
+  # Layout belongs to swift-format; these rules disagree with its output.
+  - line_length                  # swift-format's lineLength (180)
+  - trailing_comma               # swift-format adds trailing commas to multiline collections
+  - opening_brace                # swift-format puts `{` on its own line after a wrapped condition
+  - statement_position           # a comment between `}` and `else` is kept by swift-format
+  - vertical_parameter_alignment # swift-format indents wrapped parameters by 4, not to the paren
+  # Size metrics: the house style keeps one file per pane and long view builders.
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+  - function_parameter_count
+  - large_tuple
+  # swift-format's UseWhereClausesInForLoops is off on purpose; same choice here.
+  - for_where
+  # `String(decoding:as:)` repairs bad UTF-8 on purpose (C buffers, sysctl, logs, HTTP bodies): a
+  # reading must not vanish because one byte is off. The rule wants the failable init instead.
+  - optional_data_string_conversion
+
+opt_in_rules:
+  - empty_count
+  - first_where
+  - last_where
+  - contains_over_filter_count
+  - contains_over_filter_is_empty
+  - contains_over_first_not_nil
+  - contains_over_range_nil_comparison
+  - sorted_first_last
+  - redundant_nil_coalescing
+  - toggle_bool
+  - fatal_error_message
+  - implicitly_unwrapped_optional
+  - empty_string
+  - empty_collection_literal
+  - flatmap_over_map_reduce
+  - identical_operands
+  - joined_default_parameter
+  - legacy_multiple
+  - legacy_random
+  - yoda_condition
+  - unavailable_function
+  - prefer_self_type_over_type_of_self
+
+identifier_name:
+  min_length: 1          # x, y, i, s, a, t: short names in short scopes are the house style
+  max_length:
+    warning: 200         # Swift Testing names are sentences
+    error: 250
+  allowed_symbols: ["_"]
+
+type_name:
+  min_length: 1
+  max_length:
+    warning: 80
+    error: 120
+
+nesting:
+  type_level: 3
+  function_level: 5
+
+custom_rules:
+  # AGENTS.md: read SwiftUI frames in a named coordinate space, never `.global`.
+  # Guard test: NoGlobalFramesTests (kept; this rule only reports it sooner).
+  no_global_coordinate_space:
+    name: "No .global coordinate space"
+    included: "Sources/.*\\.swift$"
+    regex: "\\b(in|coordinateSpace):\\s*\\.global\\b|\\bCoordinateSpace\\.global\\b"
+    excluded_match_kinds: [comment, comment.mark, comment.url, doccomment, doccomment.field, string]
+    message: "Read frames in a named coordinate space; inside the popover `.global` is 13 pt off the hosting view."
+    severity: error
+
+  # AGENTS.md: colours live in Theme.Palette; no hex anywhere else. The Settings tile table
+  # (`case .x: return 0x…` in SettingsPane.tileHex) is the one exception, as in the guard test.
+  # Guard test: PaletteOnlyColoursTests.noHexColourOutsideTheTheme.
+  no_hex_colour_outside_theme:
+    name: "No hex colour outside Theme"
+    included: "Sources/HeronUI/.*\\.swift$"
+    excluded: "Sources/HeronUI/Theme\\.swift$"
+    regex: "(?<!return )\\b0x[0-9A-Fa-f]{6}\\b"
+    excluded_match_kinds: [comment, comment.mark, comment.url, doccomment, doccomment.field, string]
+    message: "Colours live in Theme.Palette (contrast is tested there); no hex literals elsewhere."
+    severity: error
+
+  # AGENTS.md: tests use their own suites through scratchDefaults(_:), never the user's domains.
+  # Removing a scratch domain (`UserDefaults.standard.removePersistentDomain`) is allowed.
+  # Guard test: NoLeakedDefaultsTests.
+  no_standard_defaults_in_tests:
+    name: "No UserDefaults.standard in tests"
+    included: "Tests/.*\\.swift$"
+    regex: "\\bUserDefaults\\.standard\\b(?!\\.removePersistentDomain)"
+    excluded_match_kinds: [comment, comment.mark, comment.url, doccomment, doccomment.field, string]
+    message: "Use scratchDefaults(_:); tests never touch the user's real defaults."
+    severity: error

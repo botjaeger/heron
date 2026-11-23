@@ -1,0 +1,15 @@
+.build/
+dist/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+.DS_Store
+
+# Local agent and tool state (not part of the project)
+.claude/agent-memory/
+.claude/settings.local.json
+.impeccable/
+.playwright-cli/
+
+# heron-snap's default output folder
+snapshots/

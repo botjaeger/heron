@@ -1,0 +1,52 @@
+#!/bin/zsh
+# Pre-commit: swift format lint and SwiftLint on the staged .swift files (their staged contents,
+# not the working copy), then a debug build with 0 warnings. Activate with scripts/install-hooks.sh.
+set -euo pipefail
+zmodload zsh/datetime
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+files=("${(@f)$(git diff --cached --name-only --diff-filter=ACMR -- '*.swift')}")
+files=(${files:#})   # drop the empty element left when nothing is staged
+(( ${#files} )) || exit 0
+
+fail() {
+    print -u2 -- "\npre-commit: $1 failed."
+    print -u2 -- "Fix the layout and the auto-fixable lint with scripts/check.sh --fix, then the rest by hand; stage and commit again."
+    exit 1
+}
+
+# Write the staged versions to a scratch folder, at the same relative paths (SwiftLint's custom
+# rules match on them), so a partly staged file is checked as it will be committed.
+stage=$(mktemp -d "${TMPDIR:-/tmp}/heron-precommit.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+git checkout-index --prefix="$stage/" -- $files
+staged=($stage/${^files})
+
+t0=$EPOCHREALTIME
+print -- "==> swift format lint --strict (${#files} staged files)"
+swift format lint --strict --configuration "$root/.swift-format" $staged || fail "swift format lint"
+printf '    ok (%.1fs)\n' $((EPOCHREALTIME - t0))
+
+t0=$EPOCHREALTIME
+print -- "==> swiftlint --strict (${#files} staged files)"
+command -v swiftlint > /dev/null || { print -u2 "swiftlint is not installed: brew install swiftlint"; exit 1; }
+swiftlint lint --strict --quiet --config "$root/.swiftlint.yml" $staged || fail "swiftlint"
+printf '    ok (%.1fs)\n' $((EPOCHREALTIME - t0))
+
+t0=$EPOCHREALTIME
+print -- "==> swift build (0 warnings)"
+log="$stage/build.log"
+gate=(--scratch-path .build/gate -Xswiftc -warnings-as-errors -Xcc -Werror)
+if ! swift build --build-tests $gate > "$log" 2>&1; then
+    grep -E "error:|warning:" "$log" | sort -u >&2 || tail -40 "$log" >&2
+    print -u2 -- "\npre-commit: swift build failed."
+    exit 1
+fi
+if grep -q "warning:" "$log"; then
+    grep "warning:" "$log" | sort -u >&2
+    print -u2 -- "\npre-commit: swift build has warnings."
+    exit 1
+fi
+printf '    ok (%.1fs)\n' $((EPOCHREALTIME - t0))
