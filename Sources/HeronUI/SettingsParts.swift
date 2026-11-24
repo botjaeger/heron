@@ -52,7 +52,7 @@ extension SettingsPane {
         switch self {
         case .general:
             return [
-                "Launch at login", "Appearance", "Light", "Dark", "Temperature", "Celsius", "Fahrenheit", "°C", "°F",
+                "Launch at login", "Appearance", "Light", "Dark", "Temperature", "Celsius", "Fahrenheit", "°C", "°F", "Copy picture", "Screenshot",
                 "Update every", "Interval", "Graphs show the last", "Graph history", "Slow down on low battery", "Reset all settings",
             ]
         case .menuBar:
@@ -96,7 +96,7 @@ extension SettingsPane {
     /// list or more (a guard test checks this against `AppSettings.keys`).
     public var keys: [String] {
         switch self {
-        case .general: return ["appearance", "temperatureUnit", "interval", "graphRange", "slowOnLowBattery"]
+        case .general: return ["appearance", "temperatureUnit", "interval", "graphRange", "slowOnLowBattery", "copyPicture"]
         case .menuBar: return ["menuItems", "showIcon", "colourMode", "spacing", "warnRed", "networkInBits", "aiUsage"]
         case .overview:
             return [

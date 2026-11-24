@@ -115,6 +115,8 @@ func renderAIPanel() {
         render(PopoverView(kind: .ai, aiDebug: debug).environment(settings(configure)).environment(ai), "ai-panel-\(name)")
     }
     panel("all")
+    renderPicture(.ai, settings: settings(), ai: service, "picture-ai")
+    renderPicture(.ai, settings: settings { $0.aiUsage.privacyMode = true }, ai: service, "picture-ai-privacy")
     panel("all-used-pace-clock-names") { s in
         s.aiUsage.display = .used; s.aiUsage.paceMarks = true; s.aiUsage.resetFormat = .clock; s.aiUsage.providersAs = .name
     }

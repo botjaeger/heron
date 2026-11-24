@@ -18,6 +18,8 @@ public enum HeronIcon: String, CaseIterable, Sendable {
     case check
     // AI usage: its Settings pane and card (the design's sparkle); a pinned limit.
     case ai, pin
+    // A panel's "Copy picture": two overlapping sheets.
+    case copy
 
     enum Element {
         case rect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, radius: CGFloat)
@@ -73,6 +75,11 @@ public enum HeronIcon: String, CaseIterable, Sendable {
         case .check: return [.path("M5 12.6l4.6 4.4L19 7")]
         case .ai: return [.path("M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z")]
         case .pin: return [.path("M15 3l6 6-3 1-4 4 1 5-2 2-4-5-5 5-1-1 5-5-5-4 2-2 5 1 4-4z")]
+        case .copy:
+            return [
+                .rect(x: 8.5, y: 8.5, width: 12, height: 12, radius: 2.5),
+                .path("M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"),
+            ]
         }
     }
 

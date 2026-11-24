@@ -377,9 +377,6 @@ struct AIPanelView: View {
             .keyboardShortcut("r", modifiers: .command)
             .help("Refresh every account now")
             Spacer(minLength: 6)
-            Button("Copy picture") {
-                AIPicture.copy(AIPanelPicture(), settings: settings, ai: ai, services: services, scheme: scheme)
-            }
             Button("Accounts…") { services.openSettings(AIPanelActions.accountsRoute) }
         }
         .buttonStyle(FooterButtonStyle())
@@ -426,7 +423,8 @@ struct AIPanelContent: View {
 struct AIPanelPicture: View {
     @Environment(AIUsageService.self) private var ai: AIUsageService?
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // Spaced and inset as the panel draws its header (`PopoverView`) and cards (`AIPanelView`).
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 IconTile(part: .ai, size: 30)
                 VStack(alignment: .leading, spacing: 1) {
@@ -434,7 +432,8 @@ struct AIPanelPicture: View {
                     Text(AIText.accountsLine(ai?.accounts ?? [])).font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
             }
-            AIPanelContent()
+            .padding(.horizontal, 2).padding(.bottom, 2)
+            VStack(alignment: .leading, spacing: 8) { AIPanelContent() }
         }
     }
 }
@@ -544,7 +543,7 @@ struct AIGroupCard: View {
         let accounts = group.accounts
         Button("Refresh") { for a in accounts { Task { await ai?.refresh(a, force: true) } } }
         Button("Manage accounts…") { services.openSettings(AIPanelActions.accountsRoute) }
-        Button("Copy picture") { copy() }
+        if settings.copyPicture { Button("Copy picture") { copy() } }
         Divider()
         Button("Status page") { services.openURL(group.provider.statusURL) }
         Button("Usage dashboard") { services.openURL(group.provider.dashboardURL) }
@@ -557,7 +556,7 @@ struct AIGroupCard: View {
         }
         Button("Refresh") { Task { await ai?.refresh(account, force: true) } }
         Button("Rename") { renaming = account.id }
-        Button("Copy picture") { copy() }
+        if settings.copyPicture { Button("Copy picture") { copy() } }
     }
 
     private func copy() {
@@ -706,12 +705,8 @@ enum AIPicture {
             view
             .padding(14)
             .frame(width: PopoverView.width)
-            .background(Theme.settingsPanel)
             .environment(settings).environment(ai).environment(services)
             .environment(\.aiHidesEmails, settings.aiUsage.privacyMode)
-            .environment(\.colorScheme, scheme)
-        guard let image = MenuBarRenderer.image(content, scale: NSScreen.main?.backingScaleFactor ?? 2) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([image])
+        PanelPicture.copy(content, scheme: scheme)
     }
 }

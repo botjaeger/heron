@@ -78,6 +78,19 @@ func render<V: View>(_ view: V, _ name: String, width: CGFloat? = nil, height: C
     }
 }
 
+/// What a panel's "Copy picture" puts on the pasteboard, in dark and light.
+@MainActor
+func renderPicture(_ kind: PopoverKind, settings: AppSettings, ai: AIUsageService, _ name: String) {
+    for dark in [true, false] {
+        guard let image = PopoverView.pictureImage(kind, monitor: monitor, settings: settings, services: services, ai: ai, dark: dark),
+            let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+        else { continue }
+        let url = output.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png")
+        try? png.write(to: url)
+        print("wrote", url.path, Int(image.size.width), "x", Int(image.size.height))
+    }
+}
+
 /// One menu bar item as the status bar shows it, in the light or dark mode it is rendered in.
 struct MenuBarRow: View {
     var settings: AppSettings
@@ -180,6 +193,11 @@ MainActor.assumeIsolated {
         } else {
             render(PopoverView(kind: PopoverKind(part)), "panel-\(part.rawValue)")
         }
+    }
+    // What each panel's "Copy picture" puts on the pasteboard (drawn by ImageRenderer, not a window).
+    // (The AI usage panel's, with its fixture accounts: `renderAIPanel`.)
+    for kind in PopoverKind.allCases where kind != .overview && kind != .ai {
+        renderPicture(kind, settings: settings, ai: ai, "picture-\(kind.rawValue)")
     }
     settings.cardStyles = [:]
     panels.openNow(.battery)

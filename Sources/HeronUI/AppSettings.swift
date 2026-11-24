@@ -48,6 +48,8 @@ public final class AppSettings {
     public var showPublicIP: Bool { didSet { save(showPublicIP, "showPublicIP") } }
     public var hideDiskImages: Bool { didSet { save(hideDiskImages, "hideDiskImages") } }
     public var hideUnknownSensors: Bool { didSet { save(hideUnknownSensors, "hideUnknownSensors") } }
+    /// "Copy picture" on every panel (and in the AI usage panel's footer and menus).
+    public var copyPicture: Bool { didSet { save(copyPicture, "copyPicture") } }
     /// The temperatures on the overview's Sensors card, in order: one to `SensorCardItem.limit`.
     public var sensorCard: [SensorCardItem] { didSet { save(sensorCard.map(\.rawValue), "sensorCard") } }
     /// The fan glyph and speed in the Sensors card's title row.
@@ -129,6 +131,7 @@ public final class AppSettings {
         showPublicIP = get("showPublicIP", false)
         hideDiskImages = get("hideDiskImages", true)
         hideUnknownSensors = get("hideUnknownSensors", true)
+        copyPicture = get("copyPicture", true)
         sensorCard = SensorCardItem.cleaned(get("sensorCard", [String]()))
         sensorCardFans = get("sensorCardFans", true)
         nameHottest = get("nameHottest", false)
@@ -161,7 +164,7 @@ public final class AppSettings {
         sensorCard = fresh.sensorCard; sensorCardFans = fresh.sensorCardFans; nameHottest = fresh.nameHottest
         cardStyles = fresh.cardStyles
         alertRules = fresh.alertRules; alertCooldown = fresh.alertCooldown; betaUpdates = fresh.betaUpdates
-        aiUsage = fresh.aiUsage
+        aiUsage = fresh.aiUsage; copyPicture = fresh.copyPicture
     }
 
     /// Settings › Overview › Restore defaults: every setting that pane holds (`SettingsPane.overview.keys`)
@@ -183,6 +186,7 @@ public final class AppSettings {
         "showIcon", "colourMode", "spacing", "warnRed", "overviewOrder", "hiddenSections", "graphRange",
         "showCPUProcesses", "showMemoryProcesses", "showCores", "networkInBits", "showPublicIP", "hideDiskImages", "hideUnknownSensors",
         "sensorCard", "sensorCardFans", "nameHottest", "cardStyles", "alertRules", "alertCooldown", "aiUsage", "betaUpdates", "onboardingDone", "lastSeenVersion",
+        "copyPicture",
     ]
 
     /// Stored by earlier versions; removed at launch. "menuBarSensor" became the temperature item's

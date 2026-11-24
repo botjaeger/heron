@@ -32,6 +32,9 @@ public struct PopoverView: View {
 
     /// heron-snap: the AI panel on a given view, its first resets list open (and confirming).
     var aiDebug: AIPanelDebug?
+    /// Drawn for "Copy picture": the panel without its Copy picture button.
+    var picture = false
+    @Environment(\.colorScheme) private var scheme
 
     public init(kind: PopoverKind, snapshot: Snapshot? = nil, debugMenu: OverviewPart? = nil, aiDebug: AIPanelDebug? = nil) {
         self.kind = kind; self.snapshot = snapshot; self.debugMenu = debugMenu; self.aiDebug = aiDebug
@@ -141,15 +144,52 @@ public struct PopoverView: View {
             HStack(spacing: 10) {
                 if let part = kind.part { IconTile(part: part, battery: s.battery, size: 30) }
                 VStack(alignment: .leading, spacing: 1) {
+                    // "Copy picture" sits on the title's line, over it rather than beside the
+                    // header: the subtitle keeps the full width (the CPU line needs all of it) and
+                    // the header is as tall with the button as without.
                     Text(title).font(.system(size: 15, weight: .bold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(alignment: .trailing) {
+                            if Self.showsCopyButton(kind, on: settings.copyPicture, picture: picture) {
+                                CopyPictureButton { copyPicture() }
+                            }
+                        }
                     if !subtitle.isEmpty {
                         Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.tail)
                     }
                 }
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 2).padding(.bottom, 2)
         }
+    }
+
+    /// A panel's header button: on with Settings › General › Copy picture, never on the overview,
+    /// never in the picture itself. The same button on every panel, the AI usage panel's too.
+    static func showsCopyButton(_ kind: PopoverKind, on: Bool, picture: Bool) -> Bool {
+        on && !picture && kind != .overview
+    }
+
+    /// This panel at its full height, header and every section, as "Copy picture" draws it. The AI
+    /// usage panel: its header and account cards without the footer, account names hidden in
+    /// Privacy Mode.
+    static func picture(_ kind: PopoverKind, snapshot: Snapshot, monitor: Monitor, settings: AppSettings, services: AppServices, ai: AIUsageService?) -> AnyView {
+        if kind == .ai, let ai {
+            return AnyView(
+                AIPanelPicture()
+                    .padding(14)
+                    .frame(width: Self.width)
+                    .environment(monitor).environment(settings).environment(ai).environment(services)
+                    .environment(\.aiHidesEmails, settings.aiUsage.privacyMode))
+        }
+        var page = PopoverView(kind: kind, snapshot: snapshot)
+        page.picture = true
+        let content = page.environment(monitor).environment(settings).environment(services)
+        return ai.map { AnyView(content.environment($0)) } ?? AnyView(content)
+    }
+
+    private func copyPicture() {
+        PanelPicture.copy(Self.picture(kind, snapshot: s, monitor: monitor, settings: settings, services: services, ai: ai), scheme: scheme)
     }
 
     private var title: String { kind.title }
@@ -174,6 +214,11 @@ public struct PopoverView: View {
             return [b.maxCapacityFraction.map { "Health \(Format.percent($0))" }, b.cycleCount.map { "\($0) cycles" }].compactMap { $0 }.joined(separator: " · ")
         case .ai: return AIText.accountsLine(ai?.accounts ?? [])
         }
+    }
+
+    /// heron-snap: the picture "Copy picture" puts on the pasteboard for `kind`'s panel.
+    public static func pictureImage(_ kind: PopoverKind, monitor: Monitor, settings: AppSettings, services: AppServices, ai: AIUsageService?, dark: Bool) -> NSImage? {
+        PanelPicture.image(picture(kind, snapshot: monitor.snapshot, monitor: monitor, settings: settings, services: services, ai: ai), scheme: dark ? .dark : .light, scale: 2)
     }
 
     /// "Settings…" opens what this popover shows: General for the overview, Settings › Overview

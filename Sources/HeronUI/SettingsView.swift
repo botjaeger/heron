@@ -134,6 +134,12 @@ private struct GeneralPane: View {
                         title: "Temperature", selection: $settings.temperatureUnit,
                         options: [(Format.TemperatureUnit.celsius, "°C"), (.fahrenheit, "°F")])
                 }
+                SettingsRow(
+                    title: "Copy picture",
+                    subtitle: settings.copyPicture ? "A button on every panel copies it as a picture" : "Off: panels have no Copy picture button", minHeight: 52
+                ) {
+                    SettingsSwitch(title: "Copy picture", isOn: $settings.copyPicture)
+                }
             }
             SettingsGroup("Readings") {
                 SettingsRow(title: "Update every", subtitle: Self.intervalHint(settings.interval), first: true, minHeight: 52) {

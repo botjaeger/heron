@@ -1,7 +1,43 @@
+import AppKit
 import HeronCore
 import SwiftUI
 
 // MARK: - Shared pieces
+
+/// "Copy picture": a panel (or part of one) drawn on the popover's background, in the current
+/// appearance, and put on the pasteboard.
+enum PanelPicture {
+    @MainActor static func copy<V: View>(_ view: V, scheme: ColorScheme) {
+        guard let image = self.image(view, scheme: scheme) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([image])
+    }
+
+    @MainActor static func image<V: View>(_ view: V, scheme: ColorScheme, scale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2) -> NSImage? {
+        MenuBarRenderer.image(view.background(Theme.settingsPanel).environment(\.colorScheme, scheme), scale: scale)
+    }
+}
+
+/// A panel header's "Copy picture" button (Settings › General › Copy picture turns it off).
+struct CopyPictureButton: View {
+    var action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            // The look of a row's history button.
+            HeronIconView(.copy, size: 12, weight: 2)
+                .foregroundStyle(hovered ? Color.primary : Theme.muted)
+                .frame(width: 22, height: 22)
+                .background(Color.primary.opacity(hovered ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help("Copy picture")
+        .accessibilityLabel("Copy picture")
+    }
+}
 
 /// The charge as a bar in the memory colour (red when low), with macOS's charge limit as a tick;
 /// in the panel the part above the limit is hatched and the tick says "Limit 80%".

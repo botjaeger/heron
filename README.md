@@ -27,7 +27,8 @@ It idles at about 1% CPU. Distributed outside the Mac App Store (it reads privat
 - **Overview.** Every section as a card, in your order; hide the ones you don't need. Each card
   has its own look (bars, graph, ring), set in Settings.
 - **Detail panels.** Hover, click or use the arrow keys. Rest on a row with a history (or click
-  it) and the history opens beside the panel, like a submenu.
+  it) and the history opens beside the panel, like a submenu. Copy picture puts a whole panel on
+  the clipboard as an image (Settings › General turns the button off).
 - **Readings most monitors don't show.** Memory pressure as a percentage, the battery charge
   limit, display power, CPU cluster clock speeds, bytes read and written since boot.
 - **AI plan usage.** Claude, ChatGPT (Codex) and OpenCode, the way

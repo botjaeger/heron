@@ -352,3 +352,39 @@ import Testing
         #expect(panels.open == .cpu)
     }
 }
+
+/// "Copy picture" on every panel: the header button follows Settings › General › Copy picture, and
+/// the picture is the whole panel at full height, even when the panel on screen scrolls.
+@Suite struct CopyPictureTests {
+    @Test func theButtonIsOnEveryPanelWhileTheSettingIsOn() {
+        for kind in PopoverKind.allCases where kind != .overview {
+            #expect(PopoverView.showsCopyButton(kind, on: true, picture: false), "\(kind)")
+            #expect(!PopoverView.showsCopyButton(kind, on: false, picture: false), "\(kind)")
+            #expect(!PopoverView.showsCopyButton(kind, on: true, picture: true), "\(kind)")
+        }
+        // The overview has no header button.
+        #expect(!PopoverView.showsCopyButton(.overview, on: true, picture: false))
+    }
+
+    @Test func theSettingIsOnByDefaultAndReset() {
+        let defaults = scratchDefaults("copy-picture")
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.copyPicture)
+        settings.copyPicture = false
+        #expect(!AppSettings(defaults: defaults).copyPicture)
+        settings.reset()
+        #expect(settings.copyPicture)
+    }
+
+    @MainActor @Test func thePictureIsTheWholePanel() throws {
+        let monitor = Monitor()
+        let settings = AppSettings(defaults: scratchDefaults("copy-picture-image"))
+        for kind in PopoverKind.allCases where kind != .overview && kind != .ai {
+            let view = PopoverView.picture(kind, snapshot: monitor.snapshot, monitor: monitor, settings: settings, services: AppServices(), ai: nil)
+            let full = NSHostingView(rootView: view).fittingSize
+            let image = try #require(PanelPicture.image(view, scheme: .dark, scale: 1), "\(kind)")
+            #expect(abs(image.size.width - PopoverView.width) < 1, "\(kind)")
+            #expect(abs(image.size.height - full.height) < 1 && image.size.height > 60, "\(kind) \(image.size) vs \(full)")
+        }
+    }
+}
