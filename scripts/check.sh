@@ -2,8 +2,8 @@
 # Heron's one gate runner. Runs the checks AGENTS.md lists, prints each step's time, and stops at
 # the first failure.
 #
-#   scripts/check.sh           format lint, SwiftLint, debug build, release build, tests, heron-snap
-#   scripts/check.sh --fast    format lint, SwiftLint, debug build (what pre-commit needs)
+#   scripts/check.sh           format lint, SwiftLint, site links, debug build, release build, tests, heron-snap
+#   scripts/check.sh --fast    format lint, SwiftLint, site links, debug build (what pre-commit needs)
 #   scripts/check.sh --fix     swift format in place, then swiftlint --fix, then swift format again
 #
 # Builds, tests and heron-snap use their own build folder (.build/gate) with warnings turned into
@@ -109,6 +109,16 @@ run_snap() {
     print -n -- "$count PNGs in $out "
 }
 
+# The website (site/) has no build step: every local file it links to must exist.
+site_links() {
+    local missing=0 ref
+    for ref in $(grep -oE '(src|href)="[^"]+"' site/index.html | sed -E 's/^(src|href)="//; s/"$//'); do
+        [[ $ref == http* || $ref == \#* || $ref == mailto:* ]] && continue
+        [[ -e site/$ref ]] || { print -u2 -- "\nsite/index.html links to a missing file: $ref"; missing=1; }
+    done
+    return $missing
+}
+
 fix_format() { swift format format --in-place --recursive $paths; }
 fix_lint() {
     need swiftlint "brew install swiftlint" || return 1
@@ -128,6 +138,7 @@ fi
 fixable="Fix the layout and the auto-fixable lint with scripts/check.sh --fix, then the rest by hand."
 step "swift format lint --strict" format_lint "$fixable"
 step "swiftlint --strict" swiftlint_lint "$fixable"
+step "site links" site_links
 step "swift build (debug + tests, 0 warnings)" build_debug
 if [[ $mode == full ]]; then
     step "swift build -c release (0 warnings)" build_release

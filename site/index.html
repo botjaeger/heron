@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Heron is a read-only menu bar monitor for Apple silicon Macs: CPU, GPU, memory, disk, network, temperatures, fans, power, battery and AI plan usage.">
+<meta property="og:title" content="Heron for Mac">
+<meta property="og:description" content="Everything your Mac is doing, one glance away.">
+<meta property="og:image" content="https://botjaeger.github.io/heron/img/popover-overview-dark.png">
+<link rel="icon" type="image/png" href="img/icon.png">
+<link rel="apple-touch-icon" href="img/icon.png">
+<style>
+html, body { margin: 0; }
+img { max-width: 100%; }
+/* Layout: the page is set like the app. System type (the app uses it), the app's own screens
+   rendered by heron-snap, and one moving piece: the menu bar item building itself as you scroll. */
+:root {
+  --bg: #EEF0F8;
+  --surface: #FFFFFF;
+  --fg: #14163A;
+  --mute: #555A82;
+  --line: rgba(20, 22, 58, .12);
+  --accent: #C8452A;
+  --desk-1: #262B66;
+  --desk-2: #0B0D26;
+  --bar: rgba(12, 14, 40, .55);
+  --bar-ink: #F5F5F7;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0B0D26; --surface: #15183F; --fg: #F2F4F7; --mute: #A2A7CF; --line: rgba(162, 167, 207, .16); --accent: #FF8A6B; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0B0D26; --surface: #15183F; --fg: #F2F4F7; --mute: #A2A7CF; --line: rgba(162, 167, 207, .16); --accent: #FF8A6B; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 17px/1.55 var(--sans); }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.wrap { width: 100%; max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -.02em; }
+h2 { font-size: clamp(28px, 3.6vw, 40px); line-height: 1.1; font-weight: 700; }
+p { margin: 0; max-width: 62ch; }
+.mute { color: var(--mute); }
+.img-dark { display: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .img-light { display: none; } :root:not([data-theme="light"]) .img-dark { display: block; } }
+:root[data-theme="dark"] .img-light { display: none; }
+:root[data-theme="dark"] .img-dark { display: block; }
+:root[data-theme="light"] .img-dark { display: none; }
+
+/* Top */
+.top { display: flex; align-items: center; gap: 12px; padding-block: 18px; }
+.top .name { font: 700 20px var(--display); letter-spacing: -.01em; }
+.top nav { margin-left: auto; display: flex; gap: 22px; font-size: 15px; }
+.top nav a { color: var(--mute); text-decoration: none; }
+.top nav a:hover { color: var(--fg); }
+@media (max-width: 560px) { .top nav a.hide-s { display: none; } }
+
+/* Hero copy */
+.intro { padding-block: 40px 8px; display: grid; gap: 20px; }
+.intro h1 { font-size: clamp(40px, 6.4vw, 76px); line-height: 1.02; font-weight: 800; letter-spacing: -.035em; max-width: 14ch; }
+.intro p { font-size: clamp(18px, 1.8vw, 21px); color: var(--mute); }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 20px; font: 14px var(--mono); color: var(--mute); }
+
+/* The scene: one menu bar item, built by scrolling, then clicked */
+.scene { height: 330vh; }
+.scene .pin { position: sticky; top: env(safe-area-inset-top, 0px); height: 100svh; display: grid; align-content: center; gap: 18px; padding-block: 24px; }
+.desk { position: relative; height: min(760px, calc(100svh - 150px)); border-radius: 18px; overflow: hidden;
+  background: radial-gradient(120% 90% at 80% 0%, var(--desk-1), var(--desk-2) 70%); box-shadow: 0 30px 80px -40px rgba(11, 13, 38, .8); }
+/* Wallpaper: the Heron gauge as cut paper. Each layer is a sheet with its own shadow; grain on top. */
+.wall { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.wall .layer { transition: transform .9s cubic-bezier(.2, .9, .1, 1); }
+/* The loupe: the real menu bar item, magnified under itself, so the eye lands on the product. */
+.loupe { position: absolute; top: 46px; z-index: 3; padding: 16px 22px; color: var(--bar-ink); border-radius: 16px; background: var(--bar); backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4); border: 1px solid rgba(245, 245, 247, .18); box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .6);
+  transition: opacity .35s, transform .45s cubic-bezier(.16, 1, .3, 1); transform-origin: top right; }
+.loupe.gone { opacity: 0; transform: translateY(-8px) scale(.96); pointer-events: none; }
+.loupe::before { content: ""; position: absolute; top: -7px; right: var(--notch, 40px); width: 12px; height: 12px; background: inherit; border-left: 1px solid rgba(245, 245, 247, .18);
+  border-top: 1px solid rgba(245, 245, 247, .18); transform: rotate(45deg); }
+/* Right-anchored like the real menu bar: new parts push in from the left. */
+.loupe .zoom { display: flex; justify-content: flex-end; transform-origin: top left; }
+.loupe .zoom .item { background: transparent; }
+.loupe-label { display: block; margin-top: 10px; font: 600 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: rgba(245, 245, 247, .6); }
+.mbar { position: absolute; inset: 0 0 auto; z-index: 2; height: 34px; background: var(--bar); backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  display: flex; align-items: center; gap: 16px; padding: 0 14px; color: var(--bar-ink); font-size: 13.5px; }
+.mbar .apple { width: 13px; height: 13px; border-radius: 50%; background: var(--bar-ink); opacity: .9; flex: none; }
+.mbar .app { font-weight: 650; }
+.mbar .m { opacity: .85; }
+@media (max-width: 720px) { .mbar .m, .mbar .wifi { display: none; } }
+.mbar .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.item { display: flex; align-items: center; gap: 0; height: 26px; padding: 0 6px; border-radius: 6px; transition: background .25s; }
+.item.pressed { background: rgba(255, 255, 255, .2); }
+.part { display: inline-flex; align-items: center; max-width: 0; opacity: 0; overflow: hidden; margin-left: 0;
+  transition: max-width .55s cubic-bezier(.2, .9, .1, 1), opacity .35s, margin-left .55s cubic-bezier(.2, .9, .1, 1); }
+.part.on { max-width: 120px; opacity: 1; margin-left: 9px; }
+.lb { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+.lb em { font: 700 7.5px/7px var(--sans); font-style: normal; letter-spacing: .05em; color: var(--bar-ink); opacity: .78; transition: color .4s; }
+.lb i { display: block; width: 26px; height: 5px; border-radius: 3px; background: rgba(245, 245, 247, .28); overflow: hidden; }
+.lb i b { display: block; height: 100%; border-radius: 3px; background: var(--bar-ink); transition: background .4s; }
+.tx { font: 700 12px var(--mono); white-space: nowrap; transition: color .4s; }
+.tx small { font: 700 8px var(--sans); letter-spacing: .05em; opacity: .78; margin-right: 3px; }
+.net { font: 700 9px/9.5px var(--mono); text-align: right; white-space: nowrap; transition: color .4s; }
+.bat { display: inline-flex; align-items: center; gap: 4px; font: 700 12px var(--mono); }
+.bat svg { display: block; }
+.colours .c-cpu em, .colours .c-cpu .tx { color: #6E9BFF; } .colours .c-cpu i b { background: #6E9BFF; }
+.colours .c-gpu em { color: #B08CFF; } .colours .c-gpu i b { background: #B08CFF; }
+.colours .c-mem em { color: #5FD69C; } .colours .c-mem i b { background: #5FD69C; }
+.colours .c-net { color: #F3B562; }
+.colours .c-bat rect.fill { fill: #5FD69C; }
+.clock { font-variant-numeric: tabular-nums; }
+/* Width chosen so the whole overview (720 × 1718 render) fits under the menu bar. */
+.pop { position: absolute; top: 40px; width: min(300px, 74%, calc((min(760px, 100svh - 150px) - 56px) * .419)); transform-origin: top center; opacity: 0; transform: translateY(-10px) scale(.98);
+  clip-path: inset(0 0 100% 0 round 14px); transition: opacity .3s, transform .5s cubic-bezier(.2, .9, .1, 1), clip-path .6s cubic-bezier(.2, .9, .1, 1);
+  filter: drop-shadow(0 24px 40px rgba(0, 0, 0, .45)); }
+.pop img { width: 100%; height: auto; vertical-align: top; border-radius: 14px; }
+.pop.open { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round 14px); }
+.caption { display: flex; align-items: baseline; gap: 14px; min-height: 2.6em; }
+.caption .n { font: 600 13px var(--mono); color: var(--accent); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.caption p { font-size: clamp(17px, 2vw, 22px); font-weight: 600; letter-spacing: -.01em; }
+.rail { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.rail b { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
+
+/* Sections */
+.sec { padding-block: 96px; display: grid; gap: 28px; }
+.sec + .sec { border-top: 1px solid var(--line); }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+@media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); } }
+.copy { display: grid; gap: 18px; align-content: start; }
+.copy ul { margin: 0; padding-left: 1.1em; display: grid; gap: 8px; color: var(--mute); max-width: 58ch; }
+.shots { display: flex; gap: 14px; align-items: flex-start; justify-content: center; }
+.shots figure { margin: 0; flex: 0 1 300px; min-width: 0; }
+.shots img { width: 100%; height: auto; border-radius: 14px; box-shadow: 0 24px 60px -30px rgba(11, 13, 38, .55); }
+.shots .beside { margin-top: 120px; }
+@media (max-width: 640px) { .shots { flex-direction: column; align-items: center; } .shots .beside { margin-top: 0; } }
+figcaption, .note { font-size: 13px; color: var(--mute); }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 15px; }
+th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--mute); font-weight: 600; }
+td code { font: 13px var(--mono); color: var(--fg); }
+.tag { font: 600 12px var(--mono); padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); white-space: nowrap; color: var(--mute); }
+.tag.private { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* One command per line; the Copy button sits in its own bar above them, never over a command. */
+.code { position: relative; border-radius: 12px; background: var(--desk-2); color: #E6E8F5; border: 1px solid rgba(162, 167, 207, .22);
+  padding: 50px 20px 18px; font: 14px/1.8 var(--mono); white-space: pre; overflow-x: auto; }
+.code::before { content: "Terminal"; position: absolute; top: 14px; left: 20px; font: 600 12px var(--sans); color: #8F95C4; }
+.code button { position: absolute; top: 10px; right: 10px; border: 1px solid rgba(230, 232, 245, .25); background: transparent; color: #E6E8F5; font: 600 12px var(--sans);
+  padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+.code button:hover { background: rgba(255, 255, 255, .08); }
+.code .c { color: #8F95C4; }
+footer { border-top: 1px solid var(--line); padding-block: 28px; font-size: 14px; color: var(--mute); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scene { height: auto; }
+  .scene .pin { position: static; height: auto; }
+  .part, .pop, .item { transition: none; }
+}
+</style>
+<title>Heron for Mac</title>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <svg width="34" height="34" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#262B66"/><stop offset="1" stop-color="#0B0D26"/></linearGradient></defs><rect width="100" height="100" rx="23" fill="url(#t)"/><path d="M28.8 77.2 A30 30 0 1 1 71.2 77.2" fill="none" stroke="#F2F5F5" stroke-opacity=".25" stroke-width="6" stroke-linecap="round"/><path d="M28.8 77.2 A30 30 0 0 1 70.3 34.1" fill="none" stroke="#FF7A59" stroke-width="6" stroke-linecap="round"/><circle cx="50" cy="56" r="7" fill="#F2F5F5"/><circle cx="48.5" cy="55.5" r="2.1" fill="#0B0D26"/><path d="M50.6 49.9 L66.9 37.6 Q62.6 47.6 56.2 55.1 Z" fill="#FF7A59"/></svg>
+    <span class="name">Heron</span>
+    <nav aria-label="Page"><a class="hide-s" href="#overview">Overview</a><a class="hide-s" href="#sources">Sources</a><a class="hide-s" href="#ai">AI usage</a><a href="#get">Get Heron</a></nav>
+  </header>
+
+  <section class="intro">
+    <h1>Everything your Mac is doing, one glance away.</h1>
+    <p>Heron is a menu bar monitor for Apple silicon Macs: CPU, GPU, memory, disk, network, temperatures, fans, power, battery, and how much of your Claude, ChatGPT or OpenCode plan is left. It only ever reads.</p>
+    <div class="facts"><span>macOS 14 or later</span><span>Apple silicon</span><span>Open source, MIT</span></div>
+  </section>
+</div>
+
+<section class="scene" id="scene" aria-label="Building Heron's menu bar item">
+  <div class="pin wrap">
+    <div class="desk">
+      <svg class="wall" id="wall" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <linearGradient id="wallBase" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#20256A"/><stop offset="1" stop-color="#0B0D26"/></linearGradient>
+          <filter id="sheet" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#04051A" flood-opacity=".6"/><feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-color="#04051A" flood-opacity=".5"/></filter>
+          <filter id="grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .55 0"/></filter>
+          <filter id="fibre" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".012 .06" numOctaves="3" seed="7"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .35 0"/></filter>
+        </defs>
+        <rect width="1600" height="1000" fill="url(#wallBase)"/>
+        <rect width="1600" height="1000" filter="url(#fibre)" opacity=".18" style="mix-blend-mode:soft-light"/>
+        <g id="sheets"></g>
+        <rect width="1600" height="1000" filter="url(#grain)" opacity=".09" style="mix-blend-mode:overlay"/>
+      </svg>
+      <div class="mbar">
+        <span class="apple" aria-hidden="true"></span><span class="app">Finder</span><span class="m">File</span><span class="m">Edit</span><span class="m">View</span><span class="m">Go</span>
+        <div class="right">
+          <div class="item" id="item" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 100 100"><path d="M28.8 77.2 A30 30 0 1 1 71.2 77.2" fill="none" stroke="#F5F5F7" stroke-width="9" stroke-linecap="round" opacity=".45"/><path d="M28.8 77.2 A30 30 0 0 1 70.3 34.1" fill="none" stroke="#F5F5F7" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="56" r="9" fill="#F5F5F7"/><path d="M50.6 49.9 L66.9 37.6 Q62.6 47.6 56.2 55.1 Z" fill="#F5F5F7"/></svg>
+            <span class="part c-cpu" data-s="1"><span class="lb"><em>CPU</em><i><b style="width:22%"></b></i></span></span>
+            <span class="part c-gpu" data-s="2"><span class="lb"><em>GPU</em><i><b style="width:61%"></b></i></span></span>
+            <span class="part c-mem" data-s="2"><span class="lb"><em>MEM</em><i><b style="width:78%"></b></i></span></span>
+            <span class="part c-cpu" data-s="3"><span class="tx"><small>CPU</small>84°</span></span>
+            <span class="part c-net" data-s="4"><span class="net">↓ 1 KB/s<br>↑ 1 KB/s</span></span>
+            <span class="part c-bat" data-s="5"><span class="bat"><svg width="22" height="11" viewBox="0 0 22 11"><rect x=".75" y=".75" width="18.5" height="9.5" rx="2.5" fill="none" stroke="#F5F5F7" stroke-opacity=".6" stroke-width="1.5"/><rect class="fill" x="2.5" y="2.5" width="12" height="6" rx="1.2" fill="#F5F5F7"/><rect x="20.2" y="3.6" width="1.4" height="3.8" rx=".7" fill="#F5F5F7" fill-opacity=".6"/></svg>80%</span></span>
+          </div>
+          <svg class="wifi" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F5F5F7" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 9.5a13 13 0 0 1 18 0M6.2 13a8.5 8.5 0 0 1 11.6 0M9.4 16.4a4 4 0 0 1 5.2 0"/><path d="M12 19.6h.01"/></svg>
+          <span class="clock">Tue 24 Nov 09:41</span>
+        </div>
+      </div>
+      <div class="loupe" id="loupe" aria-hidden="true"><span class="zoom" id="zoom"></span><span class="loupe-label">Heron, in your menu bar</span></div>
+      <div class="pop" id="pop">
+        <img class="img-light" src="img/popover-overview-light.png" width="720" height="1718" alt="Heron's overview: CPU 22%, GPU 61%, memory 27.9 of 36 GB, network, disk 794 of 995 GB, sensors hottest 84°, battery 80% held at its limit.">
+        <img class="img-dark" src="img/popover-overview-dark.png" width="720" height="1718" alt="">
+      </div>
+    </div>
+    <div class="caption" aria-live="polite"><span class="n" id="capN">1 / 8</span><p id="capT">The Heron icon on its own. That is the default.</p></div>
+    <div class="rail"><b id="rail"></b></div>
+  </div>
+</section>
+
+<div class="wrap">
+  <section class="sec" id="overview">
+    <div class="split">
+      <div class="copy">
+        <h2>Click once for the overview. Point at a card for the rest.</h2>
+        <p class="mute">Every section is a card, in the order you choose. Rest the pointer on one, or use the arrow keys, and its detail panel opens beside the overview. Rows with a history open that history beside the panel, from the last minute to the last 24 hours.</p>
+        <ul>
+          <li>A component's temperature is the average of its sensors, so one hotspot doesn't set off an alarm.</li>
+          <li>Memory pressure as a percentage, the battery's charge limit, display power and CPU cluster clocks.</li>
+          <li>Notifications for heat, a nearly full disk and a low battery, with a repeat limit.</li>
+        </ul>
+      </div>
+      <div class="shots">
+        <figure><img class="img-light" src="img/popover-overview-light.png" width="720" height="1718" alt="The overview, in light mode." loading="lazy"><img class="img-dark" src="img/popover-overview-dark.png" width="720" height="1718" alt="The overview, in dark mode." loading="lazy"></figure>
+        <figure class="beside"><img class="img-light" src="img/panel-sensors-light.png" width="720" height="1530" alt="The Sensors panel: 162 sensors and 2 fans, hottest CPU sensor 108°, fans at 34%, package power 23 W." loading="lazy"><img class="img-dark" src="img/panel-sensors-dark.png" width="720" height="1530" alt="The Sensors panel, in dark mode." loading="lazy"></figure>
+      </div>
+    </div>
+    <p class="note">Both screens rendered by Heron's own <code>heron-snap</code> on a MacBook Pro 14″ with an M3 Max, 24 November 2026. The numbers are that Mac's readings at the time.</p>
+  </section>
+
+  <section class="sec" id="sources">
+    <h2>Where every number comes from</h2>
+    <p class="mute">Some readings have no public API on Apple silicon. Heron reads them the way macOS's own tools do, and never writes to them.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Reading</th><th>Source</th><th>API</th></tr></thead>
+        <tbody>
+          <tr><td>CPU per core</td><td><code>host_processor_info</code>, performance and efficiency cores from <code>IODeviceTree:/cpus</code></td><td><span class="tag">public</span></td></tr>
+          <tr><td>Memory</td><td><code>host_statistics64</code>, swap from <code>vm.swapusage</code>, pressure from <code>kern.memorystatus_level</code></td><td><span class="tag">public</span></td></tr>
+          <tr><td>Network</td><td><code>sysctl(NET_RT_IFLIST2)</code>, 64-bit counters</td><td><span class="tag">public</span></td></tr>
+          <tr><td>Battery</td><td><code>IOPSCopyPowerSourcesInfo</code> and the <code>AppleSmartBattery</code> registry</td><td><span class="tag">public</span></td></tr>
+          <tr><td>GPU</td><td><code>IOAccelerator</code> performance statistics</td><td><span class="tag">undocumented</span></td></tr>
+          <tr><td>Temperatures, fans</td><td>SMC keys (<code>T…</code>, <code>F&lt;n&gt;Ac</code>)</td><td><span class="tag private">private</span></td></tr>
+          <tr><td>Power, CPU clocks</td><td>IOReport energy model and CPU state residency</td><td><span class="tag private">private</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Every reading is cross-checked in Heron's tests against a second macOS API, so a parsing mistake shows up as a mismatch.</p>
+  </section>
+
+  <section class="sec" id="ai">
+    <div class="split">
+      <div class="shots"><figure><img class="img-light" src="img/ai-popover-card-light.png" width="720" height="2114" alt="The overview with the AI usage card: ChatGPT weekly 97% left, 5 hours 8% left and out in 16 minutes, Claude 5 hours 26% left." loading="lazy"><img class="img-dark" src="img/ai-popover-card-dark.png" width="720" height="2114" alt="The same overview, in dark mode." loading="lazy"></figure></div>
+      <div class="copy">
+        <h2>Your AI plan limits sit next to your CPU</h2>
+        <p class="mute">Claude, ChatGPT (Codex) and OpenCode: every limit with what's left, when it resets, and whether the current pace runs out first. The card shows the most urgent ones, or the ones you pick, and they can sit in the menu bar too.</p>
+        <ul>
+          <li>Sign in in your browser, or let Heron borrow the sign-in Claude Code or Codex already saved. A borrowed sign-in is only read, never renewed.</li>
+          <li>Each limit reset says what it refills, and Heron asks before spending one.</li>
+          <li>Today and Yesterday are your own days, in your time zone.</li>
+        </ul>
+        <p class="note">This screen uses example accounts.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>Heron only reads</h2>
+    <p class="mute">It never changes fan speeds, power settings or anything else on your Mac, so it needs no root helper and no background service. Your readings stay on your Mac. It goes online only for what you turn on: your AI plan usage, straight to each provider, and update checks once releases begin.</p>
+  </section>
+
+  <section class="sec" id="get">
+    <h2>Build it from source</h2>
+    <p class="mute">There is no packaged release yet. With Xcode 16 or the Swift 6 toolchain on an Apple silicon Mac, this builds Heron and installs it in Applications:</p>
+    <div class="code" id="code"><button type="button" id="copy">Copy</button><span id="cmds">git clone https://github.com/botjaeger/heron.git
+cd heron
+packaging/install.sh</span></div>
+    <p class="note">Source, issues and the developer docs: <a href="https://github.com/botjaeger/heron">github.com/botjaeger/heron</a></p>
+  </section>
+</div>
+
+<footer><div class="wrap"><span>Heron · MIT © 2026 botjaeger · Not made or endorsed by Apple.</span><span>AI usage follows <a href="https://github.com/robinebers/openusage">OpenUsage</a> (MIT).</span></div></footer>
+
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const scene = document.getElementById("scene"), item = document.getElementById("item"), pop = document.getElementById("pop");
+  const parts = [...item.querySelectorAll(".part")], capN = document.getElementById("capN"), capT = document.getElementById("capT"), rail = document.getElementById("rail");
+  const captions = [
+    "The Heron icon on its own. That is the default.",
+    "Turn on CPU: a labelled bar.",
+    "GPU and memory, the same way.",
+    "The CPU temperature, which turns red when it runs hot.",
+    "Network, down and up.",
+    "Battery.",
+    "Metric colours, if you want them.",
+    "Click it, and the overview opens.",
+  ];
+  /* Paper wallpaper: the logo's geometry (hub at 50,56, dial radius 30) scaled up, one sheet per layer. */
+  const NS = "http://www.w3.org/2000/svg", sheets = document.getElementById("sheets");
+  const cx = 560, cy = 600, s = 9.6; // centre and scale: dial radius 30 → 288
+  const arc = (r, from = 0, to = 1) => {
+    const a0 = (135 + 270 * from) * Math.PI / 180, a1 = (135 + 270 * to) * Math.PI / 180;
+    const big = (to - from) * 270 > 180 ? 1 : 0;
+    return `M${(cx + r * Math.cos(a0)).toFixed(1)},${(cy + r * Math.sin(a0)).toFixed(1)} A${r},${r} 0 ${big} 1 ${(cx + r * Math.cos(a1)).toFixed(1)},${(cy + r * Math.sin(a1)).toFixed(1)}`;
+  };
+  const layer = (depth, inner) => { const g = document.createElementNS(NS, "g"); g.setAttribute("class", "layer"); g.dataset.depth = depth; g.innerHTML = inner; sheets.appendChild(g); return g; };
+  const strip = (d, color, w) => `<path d="${d}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" filter="url(#sheet)"/>`;
+  // Back to front: wide outer bands, the dial track, the coral reading, then the beak and hub.
+  layer(3, strip(arc(560), "#1B2062", 120));
+  layer(2.4, strip(arc(445), "#232A74", 96));
+  // Tone on tone: the wallpaper stays background, so nothing in it is coral and nothing in it moves
+  // on its own; the product is the item in the menu bar.
+  layer(1.8, strip(arc(s * 30), "#2A3180", 64) + strip(arc(s * 30, 0, .66), "#343C93", 64));
+  layer(1.2, `<g filter="url(#sheet)">${Array.from({ length: 28 }, (_, i) => { const a = (135 + 270 * i / 27) * Math.PI / 180, r0 = 205, r1 = i % 3 ? 222 : 236;
+    return `<line x1="${(cx + r0 * Math.cos(a)).toFixed(1)}" y1="${(cy + r0 * Math.sin(a)).toFixed(1)}" x2="${(cx + r1 * Math.cos(a)).toFixed(1)}" y2="${(cy + r1 * Math.sin(a)).toFixed(1)}" stroke="${i % 3 ? "#343C93" : "#454EA6"}" stroke-width="${i % 3 ? 5 : 8}" stroke-linecap="round"/>`; }).join("")}</g>`);
+  layer(.6, `<g transform="translate(${cx} ${cy}) scale(${s}) translate(-50 -56)" filter="url(#sheet)"><path d="M50.6 49.9 L66.9 37.6 Q62.6 47.6 56.2 55.1 Z" fill="#3D4699"/></g>`);
+  layer(.3, `<g filter="url(#sheet)"><circle cx="${cx}" cy="${cy}" r="${7 * s}" fill="#454EA6"/></g><circle cx="${cx - 1.5 * s}" cy="${cy - .5 * s}" r="${2.1 * s}" fill="#1B2062"/>`);
+  const sweep = () => {};
+  const layers = [...sheets.querySelectorAll(".layer")];
+  const parallax = p => { if (reduce) return; layers.forEach(g => { g.style.transform = `translate(${(-p * 14 * g.dataset.depth).toFixed(1)}px, ${(p * 10 * g.dataset.depth).toFixed(1)}px)`; }); };
+
+  // The loupe holds a copy of the item; both get every change.
+  const loupe = document.getElementById("loupe"), zoom = document.getElementById("zoom");
+  const twin = item.cloneNode(true); twin.removeAttribute("id"); zoom.appendChild(twin);
+  const twinParts = [...twin.querySelectorAll(".part")];
+  // Size the loupe to the item once it is fully built, so it never resizes while you scroll.
+  let fullW = 0;
+  function measureFull() {
+    const before = parts.map(p => p.classList.contains("on"));
+    parts.forEach(p => { p.style.transition = "none"; p.classList.add("on"); });
+    fullW = item.scrollWidth; parts.forEach((p, i) => { p.classList.toggle("on", before[i]); p.offsetWidth; p.style.transition = ""; });
+  }
+  let shown = -1, tooNarrow = false;
+  function place() {
+    // The overview hangs under the item, right-aligned like a macOS menu.
+    const desk = pop.parentElement.getBoundingClientRect(), r = item.getBoundingClientRect();
+    const left = Math.min(desk.width - pop.offsetWidth - 10, Math.max(10, r.right - desk.left - pop.offsetWidth + 6));
+    pop.style.left = left + "px";
+    // The loupe: as large as the desk allows (at most 2.6×), its notch under the real item.
+    if (!fullW) measureFull();
+    const k = Math.min(2.6, (desk.width - 70) / fullW);
+    // On a phone the desk is too narrow to magnify anything; the menu bar itself is the view there.
+    tooNarrow = k < 1.4; loupe.classList.toggle("gone", tooNarrow || shown >= 7);
+    zoom.style.transform = `scale(${k})`; zoom.style.width = fullW + "px"; zoom.style.height = "26px";
+    zoom.style.marginRight = (fullW * (k - 1)) + "px"; zoom.style.marginBottom = (26 * (k - 1)) + "px";
+    const right = Math.max(10, desk.right - r.right - 8);
+    loupe.style.right = right + "px";
+    loupe.style.setProperty("--notch", Math.max(14, r.width / 2 - 6) + "px");
+  }
+  function set(step) {
+    if (step === shown) return; shown = step;
+    [parts, twinParts].forEach(list => list.forEach(p => p.classList.toggle("on", step >= +p.dataset.s)));
+    [item, twin].forEach(el => el.classList.toggle("colours", step >= 6));
+    item.classList.toggle("pressed", step >= 7);
+    pop.classList.toggle("open", step >= 7);
+    loupe.classList.toggle("gone", tooNarrow || step >= 7);
+    capN.textContent = (step + 1) + " / 8"; capT.textContent = captions[step];
+    sweep(step);
+    requestAnimationFrame(place);
+  }
+  function onScroll() {
+    const r = scene.getBoundingClientRect(), span = r.height - innerHeight;
+    const p = Math.min(1, Math.max(0, -r.top / Math.max(1, span)));
+    rail.style.transform = `scaleX(${p.toFixed(3)})`;
+    parallax(p);
+    set(Math.min(7, Math.floor(p * 8.4)));
+  }
+  if (reduce) { set(7); rail.style.transform = "scaleX(1)"; }
+  else { addEventListener("scroll", onScroll, { passive: true }); onScroll(); }
+  addEventListener("resize", place);
+  setTimeout(place, 50);
+
+  const copy = document.getElementById("copy");
+  copy.addEventListener("click", async () => {
+    const text = "git clone https://github.com/botjaeger/heron.git\ncd heron\npackaging/install.sh";
+    try { await navigator.clipboard.writeText(text); copy.textContent = "Copied"; }
+    catch { const sel = getSelection(), range = document.createRange(); range.selectNodeContents(document.getElementById("cmds")); sel.removeAllRanges(); sel.addRange(range); copy.textContent = "Selected, press ⌘C"; }
+    setTimeout(() => { copy.textContent = "Copy"; }, 1800);
+  });
+})();
+</script>
+</body>
+</html>

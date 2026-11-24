@@ -15,12 +15,13 @@ This file holds the rules for changing it.
 | `Heron` | The app: `StatusBarController` (status item, popover, panel; its smoke hooks in `StatusBarController+Smoke`), `DetailPanelWindow`, `WindowManager`, notifications, Sparkle |
 | `heron-probe` | Prints every reading once. Prove a new data source here before any UI uses it |
 | `heron-snap` | Renders every screen to PNG in light and dark |
+| `site/` | The website: one static `index.html` and real `heron-snap` renders in `site/img`; published to GitHub Pages by `.github/workflows/pages.yml` |
 
 ## Commands
 
 ```sh
-scripts/check.sh                              # the one gate runner: format lint, swiftlint, the builds, swift test, heron-snap
-scripts/check.sh --fast                       # format lint, swiftlint, debug build (what pre-commit runs)
+scripts/check.sh                              # the one gate runner: format lint, swiftlint, site links, the builds, swift test, heron-snap
+scripts/check.sh --fast                       # format lint, swiftlint, site links, debug build (what pre-commit runs)
 scripts/check.sh --fix                        # swift format in place, then swiftlint --fix
 scripts/install-hooks.sh                      # once per clone: pre-commit (staged files) and pre-push (check.sh) hooks
 ```
@@ -31,6 +32,7 @@ builds use `.build/gate` with warnings as errors, so a warning cached by an earl
 ```sh
 swift format lint --strict --recursive Sources Tests Package.swift
 swiftlint lint --strict
+# site links: every local file site/index.html points to exists
 swift build                                   # debug, every target; must have 0 warnings
 swift build -c release
 swift test                                    # unit, guard and live cross-check tests
@@ -108,7 +110,10 @@ Heron within 2 s when the installed copy is replaced).
 - New data: add it to `heron-probe`, run it on a real Mac, paste the output, then build UI.
 - Look at the `heron-snap` PNGs in both modes after any UI change; tests don't catch layout.
 - Docs move with the code: a new data source goes in `docs.md`'s source table, a new command in
-  the Commands above and `docs.md` › Checks, a new feature in `README.md` › Features.
+  the Commands above and `docs.md` › Checks, a new feature in `README.md` › Features (and on the
+  website, `site/index.html`, when it changes what the page shows or claims).
+- The website only shows real `heron-snap` renders and true claims; never a render with the
+  maintainer's own processes or account names (`docs.md` › Website).
 
 ## Safety
 

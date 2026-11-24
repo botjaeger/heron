@@ -10,6 +10,7 @@ The product overview is in [README.md](README.md). The rules for changing the co
 - [Hardware quirks the code handles](#hardware-quirks-the-code-handles)
 - [Checks](#checks)
 - [Updates (Sparkle)](#updates-sparkle)
+- [Website](#website)
 - [Distribution](#distribution)
 - [Learning Swift with this code](#learning-swift-with-this-code)
 - [More docs](#more-docs)
@@ -27,6 +28,7 @@ Sources/
 Tests/          HeronCoreTests (samplers, maths, AI parsing) and HeronUITests (views, settings, guards).
 packaging/      Info.plist, AppIcon.icns, make-app.sh, install.sh
 scripts/        check.sh (the gate runner), install-hooks.sh
+site/           The website: index.html and real screen renders (see Website)
 ```
 
 **Data flow.** `Monitor` (HeronCore, `@MainActor`) owns the samplers. A timer fires every second;
@@ -176,6 +178,23 @@ Sparkle refuses to run without a signing key, so updates stay off until you set 
 
 After an update Heron opens "What's New" once; add the release to `Changelog.entries`
 (`HeronUI/Dialogs.swift`).
+
+## Website
+
+`site/` is the website: one static `index.html` (no build step, system fonts, no libraries) and
+the app's own screens in `site/img`. `.github/workflows/pages.yml` publishes it to GitHub Pages when
+`site/` changes on `main` (Settings › Pages › Source: GitHub Actions; the free plan needs a public
+repo). `scripts/check.sh` checks that every local file the page links to exists.
+
+- **One moving piece.** Scrolling builds the menu bar item part by part, magnified in a loupe under
+  it, then "clicks" it and the overview drops down. The wallpaper behind it is the Heron gauge as
+  tone-on-tone paper and stays background; nothing else on the page animates.
+- **Screens are real renders.** Refresh them with `swift run heron-snap <folder>` and copy
+  `popover-overview`, `panel-sensors` and `ai-popover-card` (`-light` and `-dark`) into `site/img`,
+  then update the image `alt` text and the "rendered on" note to the new readings.
+- **Never publish a render that shows your own data**: the CPU and memory panels list your running
+  processes, and real AI accounts show their names. Use the example accounts (`heron-snap` fixtures).
+- **Claims stay true.** No feature, release or number on the page that the app or repo does not have.
 
 ## Distribution
 
