@@ -9,11 +9,16 @@ final class GlobalHotKey {
     private var ref: EventHotKeyRef?
     private var handler: EventHandlerRef?
     private(set) var registered: String?
+    /// The shortcut last asked for, registered or not. `set` runs after every sample: compared
+    /// with `registered`, a taken shortcut was registered again and logged every second.
+    private var requested: String??
     var action: () -> Void = {}
 
     /// Registers `shortcut` ("⌥⌘U"), replacing the last one; nil or an unreadable one unregisters.
+    /// A shortcut another app holds is tried once, and again only when it changes.
     func set(_ shortcut: String?) {
-        guard shortcut != registered else { return }
+        guard requested != .some(shortcut) else { return }
+        requested = .some(shortcut)
         unregister()
         guard let shortcut, let key = AIShortcut(string: shortcut) else { return }
         installHandler()

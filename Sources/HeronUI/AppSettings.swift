@@ -339,11 +339,11 @@ public enum MenuItemKind: String, Codable, CaseIterable, Identifiable, Sendable 
     /// stored sensor, CPU by default); a style this item does not offer falls back to the default.
     /// `sensor`: the retired "menuBarSensor" value, when one is still stored.
     func variant(for stored: MenuItemStyle, sensor: AppSettings.SensorChoice? = nil) -> MenuItemStyle {
-        switch (self, stored) {
-        case (.temperature, _) where sensor != nil: return MenuItemStyle(sensor: sensor!)
-        case (.temperature, .text): return .cpu
-        case (.battery, .bar): return .icon
-        case (.battery, .text): return .both
+        switch (self, stored, sensor) {
+        case (.temperature, _, let sensor?): return MenuItemStyle(sensor: sensor)
+        case (.temperature, .text, nil): return .cpu
+        case (.battery, .bar, _): return .icon
+        case (.battery, .text, _): return .both
         default: return styles.contains(stored) ? stored : styles[0]
         }
     }

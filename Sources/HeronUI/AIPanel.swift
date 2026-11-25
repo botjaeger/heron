@@ -63,11 +63,31 @@ enum AIText {
         }
     }
 
-    /// "expires 30 Nov".
-    static func expiry(_ date: Date) -> String {
+    /// A day of the resets strip: "Fri 27 Nov" (the order follows the locale).
+    static func dayTitle(_ date: Date, calendar: Calendar = .current) -> String {
         let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("d MMM")
-        return "expires \(f.string(from: date))"
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.setLocalizedDateFormatFromTemplate("EEE d MMM")
+        return f.string(from: date)
+    }
+
+    /// A time of day: "06:00", or "6:00 AM" where the locale uses a 12-hour clock.
+    static func clock(_ date: Date, calendar: Calendar = .current) -> String {
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.setLocalizedDateFormatFromTemplate("jmm")
+        return f.string(from: date)
+    }
+
+    /// When a reset runs out, in local time: "11 Dec, 06:00" (the order and clock follow the locale).
+    static func resetDate(_ date: Date, calendar: Calendar = .current) -> String {
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.setLocalizedDateFormatFromTemplate("d MMM jmm")
+        return f.string(from: date)
     }
 
     /// An account's label as a copied picture shows it: e-mail addresses left out in Privacy Mode.
@@ -225,6 +245,15 @@ enum AIRowLayout {
     /// "Claude A1 5 hours" in one column when providers show as names: the mark's and the name's
     /// room together, so the bar keeps its width.
     static var namedTitle: CGFloat { mark + 6 + name }
+
+    /// The reset column of one card: `reset`, or wider when a row's text needs it ("Resets in 23h
+    /// 59m", "Resets Wed 10:59 PM"), so it never runs over the amount; every row of the card keeps
+    /// one width, so the bars stay lined up.
+    static func resetWidth(_ rows: [AIRowModel]) -> CGFloat {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
+        let widest = rows.compactMap(\.reset).map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        return max(reset, widest.rounded(.up))
+    }
 }
 
 /// A bar row: (mark,) name, bar, amount, reset. Clicking the amount flips left / used everywhere;
@@ -237,6 +266,8 @@ struct AILimitRowView: View {
     var initials: String?
     /// Several accounts as one (unified): the hover lists each account's value.
     var perAccount: String?
+    /// The card's reset column (`AIRowLayout.resetWidth`).
+    var resetWidth: CGFloat = AIRowLayout.reset
     @Environment(AppSettings.self) private var settings
 
     var body: some View {
@@ -268,7 +299,7 @@ struct AILimitRowView: View {
                 Text(row.reset ?? "").font(Theme.number(11.5, weight: .regular)).foregroundStyle(Theme.muted).lineLimit(1).fixedSize()
             }
             .buttonStyle(.plain)
-            .frame(width: AIRowLayout.reset, alignment: .trailing)
+            .frame(width: resetWidth, alignment: .trailing)
             .help(settings.aiUsage.resetFormat == .clock ? "Show the time left" : "Show the reset time")
         }
         .font(.system(size: 12.5))
@@ -306,11 +337,11 @@ struct AIProviderBadge: View {
 /// "2 running out · 1 used up", red when something is used up, critical or burning fast.
 struct AIPill: View {
     var text: String
-    var color: Color
+    var tint: Theme.Tint
     var body: some View {
-        Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(color)
+        Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint.text)
             .padding(.horizontal, 8).padding(.vertical, 2)
-            .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 9))
+            .background(tint.fill, in: RoundedRectangle(cornerRadius: 9))
             .lineLimit(1).fixedSize()
     }
 }
@@ -344,9 +375,6 @@ struct AIAccountGroup: Identifiable, Equatable {
 /// The AI usage panel's content under its header (the header is `PopoverView`'s): the account
 /// cards and the footer.
 struct AIPanelView: View {
-    /// heron-snap: the first resets list open (and its confirmation shown).
-    var openResets = false
-    var confirmReset = false
     @Environment(AIUsageService.self) private var ai: AIUsageService?
     @Environment(AppSettings.self) private var settings
     @Environment(AppServices.self) private var services
@@ -355,7 +383,7 @@ struct AIPanelView: View {
     var body: some View {
         if let ai, !ai.accounts.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                AIPanelContent(openResets: openResets, confirmReset: confirmReset)
+                AIPanelContent()
                 footer(ai)
             }
         } else {
@@ -391,29 +419,14 @@ struct AIPanelView: View {
     }
 }
 
-/// heron-snap's way into states a render cannot click to: the first resets list open, its
-/// confirmation shown.
-public struct AIPanelDebug {
-    public var openResets: Bool
-    public var confirmReset: Bool
-    public init(openResets: Bool = false, confirmReset: Bool = false) {
-        self.openResets = openResets; self.confirmReset = confirmReset
-    }
-}
-
 /// One card per account.
 struct AIPanelContent: View {
-    var openResets = false
-    var confirmReset = false
     @Environment(AIUsageService.self) private var ai: AIUsageService?
 
     var body: some View {
         if let ai {
-            let groups = AIAccountGroup.groups(accounts: ai.accounts, readings: ai.readings)
-            ForEach(Array(groups.enumerated()), id: \.element.id) { i, group in
-                AIGroupCard(
-                    group: group, openResets: openResets && i == groups.firstIndex { g in g.metrics.contains { if case .resets = $0.value { return true } else { return false } } },
-                    confirmReset: confirmReset)
+            ForEach(AIAccountGroup.groups(accounts: ai.accounts, readings: ai.readings)) { group in
+                AIGroupCard(group: group)
             }
         }
     }
@@ -457,8 +470,6 @@ struct AINoAccounts: View {
 /// One account's card (or a unified provider's): its header, then each metric by kind.
 struct AIGroupCard: View {
     var group: AIAccountGroup
-    var openResets = false
-    var confirmReset = false
     @Environment(AIUsageService.self) private var ai: AIUsageService?
     @Environment(AppSettings.self) private var settings
     @Environment(AppServices.self) private var services
@@ -471,19 +482,17 @@ struct AIGroupCard: View {
             header.padding(.bottom, 2)
             if let ai {
                 let o = settings.aiUsage
+                let rows = Self.rows(group, settings: o)
+                let resetWidth = AIRowLayout.resetWidth(Array(rows.values))
                 ForEach(group.metrics) { metric in
                     let targets = group.targets(metric.key, readings: ai.readings)
                     switch metric.value {
                     case .limit(_, _, .percent, _, _):
-                        let line = AILimitLine(account: group.accounts[0], metric: metric)
-                        let entry = AIPriorityBoard.Entry(line: line, reason: AIPriorityBoard.reason(line, o.boardOptions, now: Date()))
-                        if let row = AIRowModel(entry: entry, settings: o) {
-                            AILimitRowView(row: row, targets: targets)
+                        if let row = rows[metric.key] {
+                            AILimitRowView(row: row, targets: targets, resetWidth: resetWidth)
                         }
                     case .resets(let count, _):
-                        AIResetsRow(
-                            title: metric.title, count: count, accounts: group.accounts,
-                            open: openResets, confirming: confirmReset)
+                        AIResetsRow(title: metric.title, count: count, account: group.accounts[0])
                     default:
                         KeyValueRow(key: metric.title, value: AIText.value(metric.value, display: o.display))
                             .font(.system(size: 12.5))
@@ -492,6 +501,18 @@ struct AIGroupCard: View {
                 }
             }
         }
+    }
+
+    /// The card's bar rows (percent limits), by metric key.
+    static func rows(_ group: AIAccountGroup, settings o: AIUsageSettings, now: Date = Date()) -> [String: AIRowModel] {
+        var rows: [String: AIRowModel] = [:]
+        for metric in group.metrics {
+            guard case .limit(_, _, .percent, _, _) = metric.value else { continue }
+            let line = AILimitLine(account: group.accounts[0], metric: metric)
+            let entry = AIPriorityBoard.Entry(line: line, reason: AIPriorityBoard.reason(line, o.boardOptions, now: now))
+            rows[metric.key] = AIRowModel(entry: entry, settings: o, now: now)
+        }
+        return rows
     }
 
     private var header: some View {
@@ -589,100 +610,36 @@ private struct RenameField: View {
     }
 }
 
-/// "Limit resets   3 available": click for each reset's kind and expiry and, when the provider
-/// says one is usable now, "Use one now…" with its confirmation before anything is spent.
+/// "Limit resets   3 available": a row with the chart glyph, like a history row; resting on it
+/// (or clicking) opens the account's resets beside the panel (`AIResetsPage`). Amber when a reset
+/// runs out soon (`Warnings.isResetExpiringSoon`).
 struct AIResetsRow: View {
     var title: String
     var count: Int
-    var accounts: [AIAccount]
+    var account: AIAccount
     @Environment(AIUsageService.self) private var ai: AIUsageService?
-    @State private var open: Bool
-    @State private var confirming: Bool
-    @State private var working = false
-    @State private var outcome: String?
 
-    init(title: String, count: Int, accounts: [AIAccount], open: Bool = false, confirming: Bool = false) {
-        self.title = title; self.count = count; self.accounts = accounts
-        _open = State(initialValue: open); _confirming = State(initialValue: confirming)
+    /// What the row opens: this account's resets.
+    static func item(_ account: AIAccount) -> HistoryItem {
+        HistoryItem(part: .ai, source: .aiResets(account: account.id), title: "Limit resets", unit: .count, color: Theme.ai)
     }
 
-    /// One line of the list: "Fable reset", "Refills Fable and gives back its weekly use", "expires 11 Dec".
-    struct Line: Equatable {
-        var title: String
-        var summary: String
-        var expiry: String?
-    }
-
-    /// Every reset the accounts hold (a grant with three resets left is three lines), soonest expiry first.
-    static func lines(_ accounts: [AIAccount], readings: [String: AIReading]) -> [Line] {
-        AIResetGrant.list(accounts.flatMap { readings[$0.id]?.grants ?? [] }).map {
-            Line(title: $0.kind.title, summary: $0.kind.summary, expiry: $0.expiresAt.map(AIText.expiry))
-        }
-    }
-
-    /// The reset to spend: one Anthropic or OpenAI says is usable now, the one that expires first.
-    static func usable(_ accounts: [AIAccount], readings: [String: AIReading]) -> (AIAccount, AIResetGrant)? {
-        let all = accounts.flatMap { a in (readings[a.id]?.grants ?? []).filter(\.usableNow).map { (a, $0) } }
-        return all.min { ($0.1.expiresAt ?? .distantFuture) < ($1.1.expiresAt ?? .distantFuture) }
+    /// The count's colour: amber when one of the account's resets runs out soon.
+    static func color(_ grants: [AIResetGrant], now: Date = Date()) -> Color {
+        Warnings.isResetExpiringSoon(AIResetGrant.list(grants).compactMap(\.expiresAt).first, now: now) ? Theme.caution : .primary
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button {
-                open.toggle()
-            } label: {
-                KeyValueRow(key: title, value: AIText.value(.resets(count: count, expiries: []), display: .left))
-                    .font(.system(size: 12.5)).frame(minHeight: 25).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            // swiftlint:disable:next empty_count - `count` is the reset count, an Int
-            .disabled(count == 0)
-            .accessibilityHint(open ? "Hides the resets" : "Shows each reset, what it refills and when it expires")
-            if open {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(Self.lines(accounts, readings: ai?.readings ?? [:]).enumerated()), id: \.offset) { _, line in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(line.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                                Text(line.summary).font(.system(size: 11)).foregroundStyle(Theme.muted)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 8)
-                            if let expiry = line.expiry {
-                                Text(expiry).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).fixedSize()
-                            }
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                    if let ai, let (account, grant) = Self.usable(accounts, readings: ai.readings) {
-                        if confirming {
-                            Text(grant.detail).font(.system(size: 11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-                            HStack(spacing: 6) {
-                                Spacer()
-                                Button("Cancel") { confirming = false }.controlSize(.small)
-                                Button("Use one now") {
-                                    working = true
-                                    Task {
-                                        outcome = AIText.outcome(await ai.claim(account, grant))
-                                        working = false; confirming = false
-                                    }
-                                }
-                                .buttonStyle(.borderedProminent).controlSize(.small).disabled(working)
-                            }
-                        } else {
-                            HStack {
-                                Spacer()
-                                Button("Use one now…") {
-                                    outcome = nil; confirming = true
-                                }.controlSize(.small)
-                            }
-                        }
-                    }
-                    if let outcome { Text(outcome).font(.system(size: 11)).foregroundStyle(Theme.muted) }
-                }
-                .padding(8)
-                .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-            }
+        let row = KeyValueRow(
+            key: title, value: AIText.value(.resets(count: count, expiries: []), display: .left),
+            valueColor: Self.color(ai?.readings[account.id]?.grants ?? [])
+        )
+        .font(.system(size: 12.5)).frame(minHeight: 25)
+        // swiftlint:disable:next empty_count - `count` is the reset count, an Int
+        if count > 0 {
+            HistoryRow(item: Self.item(account)) { row }
+        } else {
+            row
         }
     }
 }

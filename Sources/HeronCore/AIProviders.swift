@@ -110,7 +110,10 @@ public enum ClaudeAPI {
             }
         }
         if let e = body["extra_usage"] as? [String: Any], (e["is_enabled"] as? Bool) == true {
-            let minor = pow(10, AIParse.number(e["decimal_places"]) ?? 2)
+            // Whole places from 0 to 6: an absurd count made `minor` 0 or infinite, and the
+            // amounts NaN or infinite (`heron usage --json` then printed "{}").
+            let places = min(6, max(0, AIParse.int(AIParse.number(e["decimal_places"])) ?? 2))
+            let minor = pow(10, Double(places))
             let used = (AIParse.number(e["used_credits"]) ?? 0).rounded() / minor
             let title = (plan ?? "").hasPrefix("Enterprise") ? "Spend" : "Extra usage"
             if let cap = AIParse.number(e["monthly_limit"]), cap > 0 {
@@ -147,13 +150,15 @@ public enum ClaudeAPI {
             let left = min(1000, AIParse.int(AIParse.number(g["resets_left"]), .down) ?? 0)
             let ends = AIParse.date(g["ends_at"])
             guard left >= 1, ends.map({ $0 > now }) ?? true else { continue }
-            expiries += Array(repeating: ends ?? .distantFuture, count: left)
+            // And no more than 1000 in all: a list of a thousand such grants would hold a million dates.
+            expiries += Array(repeating: ends ?? .distantFuture, count: min(left, max(0, 1000 - expiries.count)))
             let usable = (g["usable_now"] as? Bool) == true && (g["paused"] as? Bool) != true
             let clears = g["clears"] as? [String] ?? [], givesBack = (g["gives_back_weekly"] as? Bool) == true
             grants.append(
                 AIResetGrant(
                     id: id, expiresAt: ends, usableNow: usable, detail: detail(clears: clears, givesBackWeekly: givesBack),
-                    kind: kind(type: g["type"] as? String, clears: clears, givesBackWeekly: givesBack), count: left))
+                    kind: kind(type: g["type"] as? String, clears: clears, givesBackWeekly: givesBack), count: left,
+                    refills: refills(clears: clears)))
         }
         guard !expiries.isEmpty else { return (nil, []) }
         return (AIMetric(key: "resets", title: "Limit resets", value: .resets(count: expiries.count, expiries: expiries.sorted())), grants)
@@ -175,6 +180,14 @@ public enum ClaudeAPI {
         return .full
     }
 
+    /// The rows a grant refills, by the keys `map(usage:)` gives them; nil (the kind's keys) when
+    /// it lists none or one Heron does not know.
+    static func refills(clears: [String]) -> [String]? {
+        let keys = ["five_hour": "session", "seven_day": "weekly", "seven_day_overage_included": "fable"]
+        let mapped = clears.compactMap { keys[$0] }
+        return mapped.isEmpty || mapped.count != clears.count ? nil : mapped
+    }
+
     static func detail(clears: [String], givesBackWeekly: Bool) -> String {
         let names = ["five_hour": "5-hour", "seven_day": "weekly", "seven_day_overage_included": "Fable"]
         let parts = clears.compactMap { names[$0] }
@@ -185,6 +198,14 @@ public enum ClaudeAPI {
         return s + ". This can't be undone."
     }
 
+    /// An organization id from the profile, only when it is a UUID: it goes into the claim's URL
+    /// path, so anything else ("../", a space) is not kept.
+    public static func orgUUID(_ v: Any?) -> String? {
+        guard let s = v as? String, UUID(uuidString: s) != nil else { return nil }
+        return s
+    }
+
+    /// `orgUUID` must have passed `orgUUID(_:)`.
     public static func claimRequest(orgUUID: String, grantID: String, requestID: String, token: String) -> URLRequest {
         request(
             "https://api.anthropic.com/api/organizations/\(orgUUID)/reset_rate_limits", token: token, method: "POST",
@@ -295,21 +316,24 @@ public enum CodexAPI {
             guard let id = c["id"] as? String else { return nil }
             // A ChatGPT credit has no type: it always refills the 5-hour and weekly limits.
             return AIResetGrant(
-                id: id, expiresAt: AIParse.date(c["expires_at"]), usableNow: true, detail: "Refills your 5-hour and weekly limits now. This can't be undone.", kind: .full)
+                id: id, expiresAt: AIParse.date(c["expires_at"]), usableNow: true, detail: "Refills your 5-hour and weekly limits now. This can't be undone.", kind: .full,
+                refills: ["session", "weekly"])
         }
         let expiries = grants.compactMap(\.expiresAt).sorted()
         return (AIMetric(key: "resets", title: "Limit resets", value: .resets(count: count, expiries: expiries)), grants)
     }
 
-    /// Daily token counts (UTC days): `[yyyy-MM-dd: tokens]`.
+    /// Daily token counts (UTC days): `[yyyy-MM-dd: tokens]`. An entry without a date or turns is
+    /// skipped; nil when the reply has days and none of them reads.
     public static func dailyTokens(_ body: [String: Any]) -> [String: Int]? {
         guard let data = body["data"] as? [[String: Any]] else { return nil }
         var out: [String: Int] = [:]
         for d in data {
-            guard let date = (d["date"] as? String)?.prefix(10), let totals = d["totals"] as? [String: Any], AIParse.number(totals["turns"]) != nil else { return nil }
-            out[String(date), default: 0] += AIParse.int(AIParse.number(totals["text_total_tokens"]), .towardZero) ?? 0
+            guard let date = (d["date"] as? String)?.prefix(10), let totals = d["totals"] as? [String: Any], AIParse.number(totals["turns"]) != nil else { continue }
+            let n = AIParse.int(AIParse.number(totals["text_total_tokens"]), .towardZero) ?? 0
+            out[String(date)] = (out[String(date)] ?? 0).addingSaturated(n)
         }
-        return out
+        return out.isEmpty && !data.isEmpty ? nil : out
     }
 
     public static func analyticsURL(days: Int = 30, now: Date = Date()) -> String {
@@ -325,7 +349,7 @@ public enum CodexAPI {
     public static func tokenRows(_ days: [String: Int], now: Date = Date()) -> [AIMetric] {
         let f = AIParse.utcDay
         let day = { (offset: Int) in days[f.string(from: now.addingTimeInterval(-Double(offset) * 86400))] ?? 0 }
-        return [AIMetric(key: "last30", title: "Last 30 days", value: .tokens((0..<30).map(day).reduce(0, +)))]
+        return [AIMetric(key: "last30", title: "Last 30 days", value: .tokens((0..<30).map(day).reduce(0) { $0.addingSaturated($1) }))]
     }
 
     /// Today and Yesterday in the user's own days, from per-local-day sums keyed by the day's
@@ -359,19 +383,22 @@ public enum OpenCodeAPI {
     }
 
     /// Session (rolling 5 h), Weekly and Monthly. A session at 0% resetting exactly 5 h from now has not started.
+    /// A window without a percent or reset time is skipped; nil when windows came and none reads.
     public static func map(usage body: [String: Any], capturedAt: Date = Date()) -> [AIMetric]? {
         guard let u = body["usage"] as? [String: Any] else { return nil }
         var out: [AIMetric] = []
+        var sent = 0
         for (k, key, title, period) in [
             ("rolling", "session", "5 hours", AIPeriod.session), ("weekly", "weekly", "Weekly", AIPeriod.week), ("monthly", "monthly", "Monthly", AIPeriod.month),
         ] {
             guard let w = u[k] as? [String: Any] else { continue }
-            guard let p = AIParse.number(w["percent"]), let reset = AIParse.date(w["resetsAt"]) else { return nil }
+            sent += 1
+            guard let p = AIParse.number(w["percent"]), let reset = AIParse.date(w["resetsAt"]) else { continue }
             let used = AIParse.clampPercent(p)
             let notStarted = key == "session" && used == 0 && abs(reset.timeIntervalSince(capturedAt) - AIPeriod.session) <= 2
             out.append(AIMetric(key: key, title: title, value: .limit(used: used, limit: 100, unit: .percent, resetsAt: notStarted ? nil : reset, period: period)))
         }
-        return out
+        return out.isEmpty && sent > 0 ? nil : out
     }
 
     public static func plan(status body: [String: Any]) -> String? {

@@ -449,31 +449,35 @@ struct StatusPill: View {
         return (first.text, first.level, all.count - 1)
     }
 
-    static func color(_ level: Level) -> Color {
+    static func tint(_ level: Level) -> Theme.Tint {
         switch level {
-        case .normal: return Theme.memory
-        case .caution: return Theme.caution
-        case .alarm: return Theme.warning
+        case .normal: return .memory
+        case .caution: return .caution
+        case .alarm: return .warning
         }
     }
 
     var snapshot: Snapshot
     var body: some View {
         let state = Self.state(snapshot)
-        let color = Self.color(state.level)
+        let tint = Self.tint(state.level)
         HStack(spacing: 6) {
             Circle().frame(width: 7, height: 7)
             Text(state.text).font(.system(size: 12, weight: .semibold)).lineLimit(1)
             if state.more > 0 {
+                // Outlined, not filled again: a second tint under the text fell to 2.7:1.
                 Text("+\(state.more)").font(.system(size: 11, weight: .semibold)).monospacedDigit()
                     .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(color.opacity(0.22), in: Capsule())
+                    .overlay(Capsule().strokeBorder(tint.text.opacity(0.5), lineWidth: 1))
             }
         }
         .padding(.horizontal, 10).frame(height: 24)
-        .foregroundStyle(color)
-        .background(color.opacity(0.16), in: Capsule())
+        .foregroundStyle(tint.text)
+        .background(tint.fill, in: Capsule())
         .fixedSize()
+        // "All normal" before Heron has read anything would be a claim with nothing behind it.
+        .opacity(snapshot.awaitingReadings ? 0 : 1)
+        .accessibilityHidden(snapshot.awaitingReadings)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(state.more > 0 ? "\(state.text), and \(state.more) more" : state.text)
     }

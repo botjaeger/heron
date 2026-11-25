@@ -72,6 +72,9 @@ public struct PowerWindow: Sendable {
     /// `energy` is joules since the previous call (as a PowerReading whose fields are joules).
     public mutating func add(_ energy: PowerReading?, at now: Date) -> PowerReading? {
         guard let energy, (energy.package ?? 0) > 0 else { return current }  // no lump this tick
+        // The wall clock went back (set by hand, NTP): the lumps before it would measure a negative
+        // period and freeze the estimate until the clock caught up. Start again from this one.
+        if let last = lumps.last, now < last.date { lumps.removeAll() }
         lumps.append((now, energy))
         // Keep lumps inside the span, but always at least two to measure a period.
         while lumps.count > 2, let first = lumps.first, now.timeIntervalSince(first.date) > span { lumps.removeFirst() }

@@ -274,6 +274,22 @@ extension NoOrphanedTypesTests {
         }
         #expect(scanned > 40)
     }
+
+    /// A formatter given a calendar takes its zone too: `DateFormatter` keeps the system's zone
+    /// otherwise, so a date printed for a given calendar shows another zone's time
+    /// (`AIText.resetDate`, `AIDuration.reset`).
+    @Test func aFormatterGivenACalendarTakesItsZone() {
+        var sites = 0
+        for file in ["HeronCore", "HeronUI", "Heron", "heron-snap"].flatMap(sourceFiles) {
+            let lines = file.text.split(separator: "\n", omittingEmptySubsequences: false)
+            for (i, line) in lines.enumerated() where line.contains(".calendar = calendar") {
+                sites += 1
+                let after = lines[i..<min(lines.count, i + 5)]
+                #expect(after.contains { $0.contains(".timeZone = calendar.timeZone") }, "\(file.name):\(i + 1): set the formatter's timeZone")
+            }
+        }
+        #expect(sites >= 2)
+    }
 }
 
 /// Class: one reading found several ways. The startup disk is `VolumeReading.isRoot` /
@@ -462,5 +478,28 @@ nonisolated final class ScratchDomains: @unchecked Sendable {
         let both = MenuBarLabel(snapshot: s, history: MetricHistory(), settings: settings)
         #expect(both.segments.map(\.kind) == [.fans, .battery] || both.segments.map(\.kind) == [.battery, .fans])
         #expect(!both.showsIcon)
+    }
+
+    /// A look that needs a reading of its own: fans as a percentage with no fan reporting its
+    /// maximum drew "FAN –"; a temperature whose sensor this Mac lacks drew "SSD –".
+    @Test func aLookWithoutItsReadingIsLeftOut() {
+        let settings = AppSettings(defaults: scratchDefaults("nosource-look"))
+        settings.setShown(.fans, true)
+        settings.setStyle(.fans, .percent)
+        settings.setShown(.temperature, true)
+        settings.setStyle(.temperature, .ssd)
+        settings.showIcon = false
+        var s = Snapshot()
+        s.fans = [Fan(id: 0, name: "Fan", rpm: 2_000, minRPM: 0, maxRPM: 0)]
+        let none = MenuBarLabel(snapshot: s, history: MetricHistory(), settings: settings)
+        #expect(none.segments.isEmpty)
+        #expect(none.showsIcon)
+        s.fans = [Fan(id: 0, name: "Fan", rpm: 2_000, minRPM: 0, maxRPM: 7_000)]
+        settings.setStyle(.temperature, .hottest)
+        let hidden = MenuBarLabel(snapshot: s, history: MetricHistory(), settings: settings)
+        #expect(hidden.segments.map(\.kind) == [.fans])  // no sensor at all: no hottest either
+        for segment in MenuBarLabel(snapshot: s, history: MetricHistory(), settings: settings).segments {
+            #expect(!segment.taggedValue.contains("–"))
+        }
     }
 }

@@ -312,6 +312,43 @@ import Testing
         #expect(abs(Theme.contrast(0x000000, 0xFFFFFF) - 21) < 0.01)  // the formula itself
     }
 
+    /// Class: coloured text on a tint of its own colour (status pill, chips, AI pill) fell to
+    /// 3.6–4.2:1, and the status pill's "+N" on a second tint to 2.7:1. Every text colour, written
+    /// in `Palette.onTint` on its `Theme.Tint` fill over every text surface, reaches 4.5:1.
+    @Test func textOnItsOwnTintMeetsAA() {
+        func rgb(_ h: UInt32) -> [Double] { [16, 8, 0].map { Double(h >> UInt32($0) & 0xff) } }
+        func over(_ top: UInt32, _ alpha: Double, _ bottom: UInt32) -> UInt32 {
+            zip(rgb(top), rgb(bottom)).map { UInt32(($0 * alpha + $1 * (1 - alpha)).rounded()) }.reduce(0) { $0 << 8 | $1 }
+        }
+        let bgs = Theme.Palette.textBackgrounds
+        for (i, pair) in Theme.Palette.text.enumerated() {
+            let text = Theme.Palette.onTint(pair)
+            for bg in bgs.light {
+                let fill = over(pair.light, Theme.Tint.alpha, bg)
+                #expect(Theme.contrast(text.light, fill) >= 4.5, "light #\(i) on its tint over \(String(bg, radix: 16))")
+            }
+            for bg in bgs.dark {
+                let fill = over(pair.dark, Theme.Tint.alpha, bg)
+                #expect(Theme.contrast(text.dark, fill) >= 4.5, "dark #\(i) on its tint over \(String(bg, radix: 16))")
+            }
+        }
+    }
+
+    /// Every tint fill goes through `Theme.Tint`: no metric colour (or a colour passed in) is
+    /// thinned into a fill by hand in the UI, where its text would escape the guard above.
+    @Test func everyTintIsATheme() throws {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Sources/HeronUI")
+        let pattern = try NSRegularExpression(pattern: #"\.background\([^)]*\b(Theme\.(cpu|gpu|memory|network|warning|caution|ai|muted)|color|chip\.color|tone)\.opacity\("#)
+        var found: [String] = []
+        for file in try FileManager.default.contentsOfDirectory(atPath: dir.path) where file.hasSuffix(".swift") {
+            let text = try String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8)
+            for (n, line) in text.components(separatedBy: "\n").enumerated() where pattern.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil {
+                found.append("\(file):\(n + 1)")
+            }
+        }
+        #expect(found.isEmpty, "a hand-made tint: \(found)")
+    }
+
     /// The menu bar item's metric colours and warning red, on light and dark menu bars.
     @Test func menuBarColoursMeetAAInBothModes() {
         let bgs = Theme.Palette.menuBarBackgrounds

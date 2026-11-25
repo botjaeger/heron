@@ -25,7 +25,7 @@ private struct HistoryHover: ViewModifier {
                 }
             }
             .accessibilityAddTraits(panels.history == item ? .isSelected : [])
-            .accessibilityHint("Shows its history")
+            .accessibilityHint(item.isAIResets ? "Shows each reset, what it refills and when it runs out" : "Shows its history")
     }
 }
 
@@ -122,9 +122,15 @@ public struct HistoryPage: View {
     public init(item: HistoryItem) { self.item = item }
 
     public var body: some View {
-        HistoryView(item: item)
-            .padding(14)
-            .frame(width: Self.width)
+        Group {
+            if case .aiResets(let account) = item.source {
+                AIResetsPage(accountID: account)
+            } else {
+                HistoryView(item: item)
+            }
+        }
+        .padding(14)
+        .frame(width: Self.width)
     }
 }
 
@@ -218,8 +224,11 @@ struct HistoryView: View {
                 HStack(spacing: 8) {
                     Text(item.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(item.color).lineLimit(1)
                     Spacer(minLength: 8)
-                    let now = NumberParts.split(monitor.history.latest(item.source).map { Self.text($0, item.unit, settings) } ?? "–")
-                    BigNumber(number: now.number, unit: now.unit, size: 24, unitSize: 13, unitColor: .primary)
+                    // No sample yet: no number (never a "–"); the chart says "Collecting…".
+                    if let latest = monitor.history.latest(item.source) {
+                        let now = NumberParts.split(Self.text(latest, item.unit, settings))
+                        BigNumber(number: now.number, unit: now.unit, size: 24, unitSize: 13, unitColor: .primary)
+                    }
                 }
                 RangePicker(selection: range) { panels?.historyRange = $0 }
                 Group {

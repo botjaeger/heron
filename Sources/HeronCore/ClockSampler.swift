@@ -100,7 +100,7 @@ public enum ClockMath {
     /// not match the table one for one, or the cluster never left idle.
     public static func activeMHz(_ states: [(name: String, residency: Int64)], table: [Double]) -> Double? {
         let steps = states.compactMap { s in step(s.name).map { ($0, max(0, s.residency)) } }
-        guard steps.count == table.count, steps.allSatisfy({ $0.0 < table.count }) else { return nil }
+        guard steps.count == table.count, steps.allSatisfy({ table.indices.contains($0.0) }) else { return nil }
         let total = steps.reduce(0) { $0 + Double($1.1) }
         guard total > 0 else { return nil }
         return steps.reduce(0) { $0 + table[$1.0] * Double($1.1) } / total

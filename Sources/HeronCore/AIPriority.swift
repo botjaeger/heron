@@ -214,6 +214,9 @@ public enum AIDuration {
         guard absolute else { return text(from: now, to: at, calendar: calendar) }
         let f = DateFormatter()
         f.calendar = calendar
+        // The calendar's own zone: a formatter keeps the system's otherwise, and the day test above
+        // would then disagree with the time printed.
+        f.timeZone = calendar.timeZone
         if calendar.isDate(at, inSameDayAs: now) {
             f.setLocalizedDateFormatFromTemplate("jmm")
         } else if at.timeIntervalSince(now) < 7 * 86400 {

@@ -51,10 +51,10 @@ struct AICardModel {
     }
 
     /// "2 running out · 1 used up"; nil when nothing is.
-    var pill: (text: String, color: Color)? {
+    var pill: (text: String, tint: Theme.Tint)? {
         let parts = [runningOut > 0 ? "\(runningOut) running out" : nil, usedUp > 0 ? "\(usedUp) used up" : nil].compactMap { $0 }
         guard !parts.isEmpty else { return nil }
-        return (parts.joined(separator: " · "), urgent ? Theme.warning : Theme.caution)
+        return (parts.joined(separator: " · "), urgent ? .warning : .caution)
     }
 
     /// "Pinned and running out first · 8 more in the panel" (the panel lists every limit).
@@ -89,12 +89,13 @@ struct AICardBody: View {
 
     var body: some View {
         let rows = model.entries.compactMap { e in AIRowModel(entry: e, settings: settings.aiUsage).map { (e, $0) } }
+        let resetWidth = AIRowLayout.resetWidth(rows.map(\.1))
         VStack(alignment: .leading, spacing: 2) {
             if rows.isEmpty {
                 Text(model.emptyText).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(rows, id: \.1.id) { entry, row in
-                AILimitRowView(row: row, targets: [entry.line], provider: entry.line.account.provider, initials: model.initials[entry.line.account.id])
+                AILimitRowView(row: row, targets: [entry.line], provider: entry.line.account.provider, initials: model.initials[entry.line.account.id], resetWidth: resetWidth)
             }
             Text(model.footer).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).padding(.top, 2)
         }

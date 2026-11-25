@@ -62,8 +62,8 @@ public final class DiskSampler {
         Registry.forEachService("IOBlockStorageDriver") { service in
             guard let stats = Registry.property(service, "Statistics") as? [String: Any] else { return }
             found = true
-            read += (stats["Bytes (Read)"] as? NSNumber)?.uint64Value ?? 0
-            write += (stats["Bytes (Write)"] as? NSNumber)?.uint64Value ?? 0
+            read = read.addingSaturated((stats["Bytes (Read)"] as? NSNumber)?.uint64Value ?? 0)
+            write = write.addingSaturated((stats["Bytes (Write)"] as? NSNumber)?.uint64Value ?? 0)
         }
         return found ? (read, write) : nil
     }

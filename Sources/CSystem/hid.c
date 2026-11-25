@@ -39,7 +39,8 @@ int heron_hid_temperatures(heron_hid_temp *out, int max) {
             IOHIDServiceClientRef svc = (IOHIDServiceClientRef)CFArrayGetValueAtIndex(services, i);
             CFStringRef name = (CFStringRef)IOHIDServiceClientCopyProperty(svc, CFSTR("Product"));
             IOHIDEventRef ev = IOHIDServiceClientCopyEvent(svc, kIOHIDEventTypeTemperature, 0, 0);
-            if (name && ev) {
+            // "Product" is a string on every Mac seen; anything else would crash CFStringGetCString.
+            if (name && ev && CFGetTypeID(name) == CFStringGetTypeID()) {
                 double c = IOHIDEventGetFloatValue(ev, kIOHIDEventTypeTemperature << 16);
                 if (c > -50 && c < 150) {   // drop obviously broken readings
                     CFStringGetCString(name, out[count].name, sizeof(out[count].name), kCFStringEncodingUTF8);

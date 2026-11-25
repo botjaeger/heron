@@ -44,8 +44,10 @@ public enum Theme {
         public static let settingsPanel: (light: UInt32, dark: UInt32) = (0xFBFBFC, 0x2E2E31)
         /// Card borders and the lines between rows.
         public static let settingsLine: (light: UInt32, dark: UInt32) = (0xDCDCE1, 0x3D3D42)
-        /// The selected sidebar row and small square buttons (primary text only).
-        public static let settingsSelection: (light: UInt32, dark: UInt32) = (0xDCDCE1, 0x3A3A3F)
+        /// The selected sidebar row, small square buttons and the chart readouts' box. Text of any
+        /// colour sits on it, so it is in `textBackgrounds` (light was 0xDCDCE1: the metric colours
+        /// fell to 4.2:1 there).
+        public static let settingsSelection: (light: UInt32, dark: UInt32) = (0xE4E4E8, 0x3A3A3F)
         /// The chosen segment of Settings › Menu Bar's compact segmented controls (primary text on it).
         public static let settingsSegment: (light: UInt32, dark: UInt32) = (0xFFFFFF, 0x5A5A60)
         /// The selected row of Settings › Overview's section list, and the text that sits on it
@@ -73,12 +75,27 @@ public enum Theme {
             [
                 card.light, 0xECECEC, 0xFFFFFF, 0xF5F5F5, 0xE5E5E5,
                 settingsWindow.light, settingsSidebar.light, settingsCard.light, settingsPreview.light, settingsPanel.light,
+                settingsSelection.light,
             ],
             [
                 card.dark, 0x323232, 0x2A2A2A, 0x3A3A3A, 0x1E1E1E,
                 settingsWindow.dark, settingsSidebar.dark, settingsCard.dark, settingsPreview.dark, settingsPanel.dark,
+                settingsSelection.dark,
             ]
         )
+
+        /// A text colour as it is written on a fill of its own colour (`Theme.Tint`): mixed 15%
+        /// toward black in light mode and 28% toward white in dark, so it keeps 4.5:1 on the tint
+        /// over every surface in `textBackgrounds` (the plain colours fell to 3.6–4.2:1 there).
+        public static func onTint(_ pair: (light: UInt32, dark: UInt32)) -> (light: UInt32, dark: UInt32) {
+            func mix(_ c: UInt32, toward t: UInt32, _ k: Double) -> UInt32 {
+                [16, 8, 0].reduce(0) { result, shift in
+                    let a = Double(c >> shift & 0xff), b = Double(t >> shift & 0xff)
+                    return result | UInt32((a + (b - a) * k).rounded()) << shift
+                }
+            }
+            return (mix(pair.light, toward: 0x000000, 0.15), mix(pair.dark, toward: 0xFFFFFF, 0.28))
+        }
 
         /// Approximations of the menu bar behind Heron's item, for the item's metric colours.
         public static let menuBarBackgrounds: (light: [UInt32], dark: [UInt32]) = ([0xE9E9EC, 0xF6F6F6], [0x141416, 0x2A2A2D])
@@ -126,6 +143,21 @@ public enum Theme {
     static let settingsPickedText = dynamic(Palette.settingsPickedText)
     static let fan = dynamic(Palette.fan)
     public static let ai = dynamic(Palette.ai)
+
+    /// A pill or box tinted with a colour, with text in that colour on it (the status pill, a
+    /// card's chip, the AI pill, "In the menu bar", the hottest sensor, the resets advice): the
+    /// fill is the colour at `alpha`, the text `Palette.onTint` of it. Every such tint is one of
+    /// these, so the contrast guard covers it (`ContrastTests.textOnItsOwnTintMeetsAA`).
+    struct Tint {
+        static let alpha = 0.16
+        let pair: (light: UInt32, dark: UInt32)
+        var fill: Color { Theme.dynamic(pair).opacity(Self.alpha) }
+        var text: Color { Theme.dynamic(Palette.onTint(pair)) }
+
+        static let caution = Tint(pair: Palette.caution)
+        static let warning = Tint(pair: Palette.warning)
+        static let memory = Tint(pair: Palette.memory)
+    }
 
     /// WCAG 2 contrast ratio of two sRGB colours.
     public static func contrast(_ a: UInt32, _ b: UInt32) -> Double {

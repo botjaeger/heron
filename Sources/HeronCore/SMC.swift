@@ -63,8 +63,10 @@ public enum SMCDecode {
     public static func number(type: String, bytes: [UInt8]) -> Double? {
         switch type {
         case "flt " where bytes.count >= 4:
-            // Little-endian IEEE float (Apple silicon).
-            return Double(Float(bitPattern: UInt32(bytes[0]) | UInt32(bytes[1]) << 8 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 24))
+            // Little-endian IEEE float (Apple silicon). NaN or an infinity is no reading: a fan's
+            // infinite rpm trapped `Int(...)` in `Format.rpm`.
+            let f = Float(bitPattern: UInt32(bytes[0]) | UInt32(bytes[1]) << 8 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 24)
+            return f.isFinite ? Double(f) : nil
         case "fpe2" where bytes.count >= 2:
             // Big-endian unsigned fixed point, 2 fractional bits (Intel fans).
             return Double(UInt16(bytes[0]) << 8 | UInt16(bytes[1])) / 4

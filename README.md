@@ -34,7 +34,8 @@ It idles at about 1% CPU. Distributed outside the Mac App Store (it reads privat
 - **AI plan usage.** Claude, ChatGPT (Codex) and OpenCode, the way
   [OpenUsage](https://github.com/robinebers/openusage) shows them: every account's limits, money
   and tokens; the most urgent (or your chosen) limits on the overview card and in the menu bar;
-  pace marks; limit resets with what each one refills, spendable after a confirmation; warning and
+  pace marks; limit resets on a 30-day strip beside the panel, with when each runs out, what it
+  would refill now and whether to use it before it is lost, spendable after a confirmation; warning and
   critical notifications. Sign in in the browser, with a device code, or borrow the sign-in Claude
   Code or Codex already saved, read-only. `Heron usage --json` prints the last readings.
 - **Alerts.** Notifications for heat, full disks, low battery and more, with a repeat limit.
@@ -61,8 +62,8 @@ Open the folder in Xcode with `xed .` (Xcode reads `Package.swift` directly).
 ## Development
 
 ```sh
-scripts/check.sh          # format, lint, debug + release builds, tests, every screen as PNG
-scripts/check.sh --fast   # format, lint, debug build
+scripts/check.sh          # format, lint, site links, debug + release builds, tests, every screen as PNG
+scripts/check.sh --fast   # format, lint, site links, debug build
 scripts/check.sh --fix    # apply the formatter and SwiftLint's autofixes
 scripts/install-hooks.sh  # pre-commit and pre-push hooks (in a git clone)
 ```

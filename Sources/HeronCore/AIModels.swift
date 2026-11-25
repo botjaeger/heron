@@ -157,6 +157,15 @@ public enum AIResetKind: String, Codable, CaseIterable, Sendable {
         case .full: return "Refills your 5-hour and weekly limits"
         }
     }
+    /// The metric keys a reset of this kind refills, when the provider does not list them.
+    public var refills: [String] {
+        switch self {
+        case .weekly: return ["weekly"]
+        case .fable: return ["fable"]
+        case .fiveHour: return ["session"]
+        case .full: return ["session", "weekly"]
+        }
+    }
 }
 
 /// A reset grant Heron can spend (Claude cedar_ember grant or ChatGPT reset credit).
@@ -169,10 +178,14 @@ public struct AIResetGrant: Codable, Equatable, Sendable {
     public var kind: AIResetKind
     /// Resets this grant holds (Claude's `resets_left`; one per ChatGPT credit).
     public var count: Int
-    public init(id: String, expiresAt: Date?, usableNow: Bool, detail: String, kind: AIResetKind = .full, count: Int = 1) {
+    /// The metric keys it refills ("session", "weekly", "fable"); `kind`'s keys when not given.
+    public var refills: [String]
+    public init(id: String, expiresAt: Date?, usableNow: Bool, detail: String, kind: AIResetKind = .full, count: Int = 1, refills: [String]? = nil) {
         self.id = id; self.expiresAt = expiresAt; self.usableNow = usableNow; self.detail = detail; self.kind = kind; self.count = count
+        self.refills = refills ?? kind.refills
     }
     // Readings saved before kinds existed have no `kind` / `count`: Full and one, until the next read.
+    // Readings saved before `refills` existed take their kind's keys.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -181,6 +194,7 @@ public struct AIResetGrant: Codable, Equatable, Sendable {
         detail = try c.decode(String.self, forKey: .detail)
         kind = try c.decodeIfPresent(AIResetKind.self, forKey: .kind) ?? .full
         count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 1
+        refills = try c.decodeIfPresent([String].self, forKey: .refills) ?? kind.refills
     }
 
     /// One entry per reset on hand (a grant with `count` 3 is three), soonest expiry first; no expiry last.

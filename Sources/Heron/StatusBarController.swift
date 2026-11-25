@@ -18,7 +18,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private let monitor: Monitor
     private let settings: AppSettings
     private let services: AppServices
-    private let ai: AIUsageService
+    let ai: AIUsageService
     private(set) var item: NSStatusItem?
     private(set) var popover: NSPopover?
     let panels = DetailPanels()
@@ -27,6 +27,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private(set) lazy var historyPanel = DetailPanelWindow(monitor: monitor, settings: settings, services: services, ai: ai, panels: panels) { $0.pointerInHistory($1) }
     private lazy var popoverTracker = PointerTracker { [weak self] _, point in self?.panels.pointerInPopover(point) }
     private var monitors: [Any] = []
+    /// While the popover is open: display changes (`screensChanged`).
+    private var screenObserver: (any NSObjectProtocol)?
     /// What the item's image was last drawn from (`MenuBarLabel.renderKey`); nil while it shows the bare mark.
     private var renderedKey: MenuBarLabel.RenderKey?
     /// Privacy Mode (Settings › AI Usage): the item, the popover and its panels stay out of screen
@@ -76,11 +78,12 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         update()
     }
 
-    /// `sharingType` .none keeps a window out of screenshots, recordings and screen sharing.
+    /// `sharingType` .none keeps a window out of screenshots, recordings and screen sharing. The
+    /// status item's own window ignores it (macOS 27.2 reads back `.readOnly` right after the set,
+    /// measured 2026-11-26), so the menu bar item stays visible; it shows no account names.
     private func applyPrivacy() {
-        let type: NSWindow.SharingType = privacy ? .none : .readOnly
         for window in [popover?.contentViewController?.view.window, panel, historyPanel, item?.button?.window] {
-            if let window, window.sharingType != type { window.sharingType = type }
+            window?.setPrivate(privacy)
         }
     }
 
@@ -190,11 +193,18 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         {
             monitors.append(keys)
         }
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.screensChanged() }
+        }
     }
 
     private func stopWatching() {
         for m in monitors { NSEvent.removeMonitor(m) }
         monitors = []
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        screenObserver = nil
     }
 
     /// Returns true when the key was used.
@@ -253,12 +263,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     /// Opens the popover with the panel machinery running.
     func showPopover(_ popover: NSPopover, from button: NSStatusBarButton) {
-        // Taller than the screen, macOS cut the popover's top off: cap it (and the panels beside
-        // it) so the cards scroll. 30 pt: the popover's arrow and a margin under the menu bar.
-        if let visible = (button.window?.screen ?? NSScreen.main)?.visibleFrame {
-            panels.popoverMaxHeight = visible.height - 30
-            panels.panelMaxHeight = visible.height - 16
-        }
+        capHeights(for: button)
         hostingController?.rootView = overview
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         guard let window = popover.contentViewController?.view.window else { return }
@@ -266,6 +271,22 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         window.acceptsMouseMovedEvents = true
         panels.side = PanelPlacement.side(width: PopoverView.width, popover: window.frame, visible: (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame)
         watchOutsideClicks()
+    }
+
+    /// Taller than the screen, macOS cut the popover's top off: cap it (and the panels beside it)
+    /// so the cards scroll. 30 pt: the popover's arrow and a margin under the menu bar.
+    private func capHeights(for button: NSStatusBarButton) {
+        guard let visible = (button.window?.screen ?? NSScreen.main)?.visibleFrame else { return }
+        panels.popoverMaxHeight = visible.height - 30
+        panels.panelMaxHeight = visible.height - 16
+    }
+
+    /// A display added, removed or rearranged while the popover is open: the menu bar may now be on
+    /// a smaller screen, so the caps and the panels' places are worked out again.
+    private func screensChanged() {
+        guard let popover, popover.isShown, let button = item?.button else { return }
+        capHeights(for: button)
+        placePanel()
     }
 
     nonisolated override var debugDescription: String { MainActor.assumeIsolated { statusDescription } }

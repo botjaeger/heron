@@ -32,7 +32,7 @@ public struct MenuBarLabel: View {
     private(set) var segments: [MenuBarSegment]
 
     private func makeSegments() -> [MenuBarSegment] {
-        settings.shownItems.filter { Self.hasSource($0.kind, in: snapshot, ai: ai) }.map {
+        settings.shownItems.filter { Self.hasSource($0.kind, style: settings.style(of: $0.kind), in: snapshot, ai: ai) }.map {
             MenuBarSegment(kind: $0.kind, style: settings.style(of: $0.kind), snapshot: snapshot, history: history, settings: settings, ink: ink, dark: dark, ai: ai)
         }
         .filter { !$0.drawsNothing }
@@ -60,11 +60,15 @@ public struct MenuBarLabel: View {
         RenderKey(segments: segments.map(\.renderKey), showsIcon: showsIcon, gap: settings.spacing.gap, ink: ink, dark: dark, scale: scale)
     }
 
-    /// AI usage: only with at least one account that has a reading.
-    static func hasSource(_ kind: MenuItemKind, in snapshot: Snapshot, ai: AIUsageService? = nil) -> Bool {
+    /// AI usage: only with at least one account that has a reading. `style`: the item's stored
+    /// look, when it needs a reading of its own (fans as a percentage need a fan that reports its
+    /// maximum; a temperature needs its sensor on this Mac).
+    static func hasSource(_ kind: MenuItemKind, style: MenuItemStyle? = nil, in snapshot: Snapshot, ai: AIUsageService? = nil) -> Bool {
+        let variant = style.map { kind.variant(for: $0) }
         switch kind {
         case .battery: return snapshot.battery?.present == true
-        case .fans: return !snapshot.fans.isEmpty
+        case .fans: return variant == .percent ? FanSummary.fraction(snapshot.fans) != nil : !snapshot.fans.isEmpty
+        case .temperature: return variant.map { SensorSummary.value($0.sensor ?? .hottest, in: snapshot) != nil } ?? true
         case .ai: return ai.map(AIMenuBarItem.hasSource) ?? false
         default: return true
         }
@@ -188,7 +192,7 @@ public struct MenuBarSegment: View {
 
     /// True when the segment's values should be drawn in the warning red.
     public var isWarning: Bool {
-        guard settings.warnRed else { return false }
+        guard settings.warnRed, !isWaiting else { return false }
         switch kind {
         case .temperature: return SensorSummary.value(sensor, in: snapshot).map(Warnings.isHot) ?? false
         case .memory: return snapshot.memory?.pressure == .critical
@@ -214,8 +218,13 @@ public struct MenuBarSegment: View {
         return ink
     }
 
+    /// No readings yet (`Snapshot.awaitingReadings`): the segment keeps its width and draws
+    /// nothing, never "CPU 0%". AI usage has readings of its own.
+    var isWaiting: Bool { snapshot.awaitingReadings && kind != .ai }
+
     public var body: some View {
         content(ink: valueInk)
+            .opacity(isWaiting ? 0 : 1)
             .frame(height: 18)
             .fixedSize()
     }
@@ -353,6 +362,7 @@ public struct MenuBarSegment: View {
 
     /// What VoiceOver reads for the item: the image alone says nothing.
     public var spokenValue: String {
+        if isWaiting { return "\(kind.title), no reading yet" }
         let s = snapshot
         switch kind {
         case .cpu: return "CPU \(Format.percent(s.cpu?.total ?? 0))"

@@ -187,6 +187,30 @@ import Testing
         #expect(credits.map(\.kind) == [.full])
     }
 
+    /// What a reset refills, as the panel's rows are keyed: the grant's own `clears` when Heron
+    /// knows every window in it, else its kind's rows; a ChatGPT credit always both limits.
+    @Test func grantsSayWhichRowsTheyRefill() throws {
+        let body: [String: Any] = [
+            "cedar_ember": [
+                "eligible": true,
+                "grants": [
+                    ["id": "a", "resets_left": 1, "type": "weekly", "clears": ["five_hour"], "usable_now": true],
+                    ["id": "b", "resets_left": 1, "gives_back_weekly": true, "clears": ["seven_day_overage_included"], "usable_now": false],
+                    ["id": "c", "resets_left": 1, "clears": ["five_hour", "seven_day"], "usable_now": true],
+                    ["id": "d", "resets_left": 1, "type": "weekly", "clears": ["seven_day_new"], "usable_now": true],
+                    ["id": "e", "resets_left": 1, "type": "session", "usable_now": true],
+                ],
+            ]
+        ]
+        #expect(ClaudeAPI.grants(body).1.map(\.refills) == [["session"], ["fable"], ["session", "weekly"], ["weekly"], ["session"]])
+        let credits = CodexAPI.resets(usage: ["rate_limit_reset_credits": ["available_count": 1, "credits": [["id": "c", "status": "available"]]]], list: nil).1
+        #expect(credits.map(\.refills) == [["session", "weekly"]])
+        // A reading saved before `refills` existed takes its kind's rows.
+        let old = #"{"id":"x","usableNow":true,"detail":"","kind":"fable","count":2}"#
+        let decoded = try JSONDecoder().decode(AIResetGrant.self, from: Data(old.utf8))
+        #expect(decoded.refills == ["fable"] && decoded.count == 2)
+    }
+
     @Test func theListRepeatsAGrantPerResetInExpiryOrder() {
         let t = Date(timeIntervalSince1970: 1_800_000_000)
         let list = AIResetGrant.list([
@@ -342,5 +366,142 @@ import Testing
         let tail = try #require(BorrowedSignIn.tail(of: day.appendingPathComponent("s.jsonl"), bytes: BorrowedSignIn.tailBytes))
         #expect(tail.utf8.count <= BorrowedSignIn.tailBytes)
         #expect(tail.hasPrefix("{"))
+    }
+}
+
+/// Class: trusting server numbers (derived values). A number that passed `AIParse.number` can still
+/// make a NaN, an infinity, an overflowing sum or an endless loop once Heron computes with it.
+@Suite struct DerivedServerNumberTests {
+    @Test func absurdDecimalPlacesKeepExtraUsageFiniteAndSavable() throws {
+        for places: Any in [1e15, -1e15, 400, -400] {
+            let body: [String: Any] = ["extra_usage": ["is_enabled": true, "decimal_places": places, "used_credits": 1234, "monthly_limit": 5000]]
+            let m = try #require(ClaudeAPI.map(usage: body, plan: nil).first)
+            guard case .limit(let used, let limit, _, _, _) = m.value else { Issue.record("not a limit"); continue }
+            #expect(used.isFinite && limit.isFinite, "\(places) places gave \(used) of \(limit)")
+            // A NaN made the saved readings fail to encode, so none of them was saved.
+            #expect((try? JSONEncoder().encode(AIReading(metrics: [m]))) != nil)
+        }
+    }
+
+    @Test func countsFromAServerOrALogSaturateInsteadOfTrapping() {
+        let day: [String: Any] = ["date": "2026-11-20", "totals": ["turns": 1, "text_total_tokens": 1e15]]
+        #expect(CodexAPI.dailyTokens(["data": Array(repeating: day, count: 20_000)]) == ["2026-11-20": Int.max])
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let f = AIParse.utcDay
+        let full = Dictionary(uniqueKeysWithValues: (0..<30).map { (f.string(from: now.addingTimeInterval(-Double($0) * 86400)), Int.max / 2) })
+        #expect(CodexAPI.tokenRows(full, now: now).first?.value == .tokens(Int.max))
+        let line = #"{"timestamp":"2026-11-23T10:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":1e15}}}}"#
+        let log = Data(Array(repeating: line, count: 10_000).joined(separator: "\n").utf8)
+        #expect(BorrowedSignIn.codexDaySums(log, calendar: Calendar(identifier: .gregorian)).values.first == Int.max)
+        #expect(UInt64.max.addingSaturated(1) == .max && Int.min.addingSaturated(-1) == .min && 2.addingSaturated(3) == 5)
+    }
+
+    @Test func oneBadDayOrWindowHidesOnlyItself() throws {
+        let days = try #require(
+            CodexAPI.dailyTokens([
+                "data": [["date": "2026-11-20", "totals": [String: Any]()], ["date": "2026-11-21", "totals": ["turns": 2, "text_total_tokens": 50]]]
+            ]))
+        #expect(days == ["2026-11-21": 50])
+        let reset = AIParse.iso.string(from: Date().addingTimeInterval(3600))
+        let usage: [String: Any] = ["usage": ["rolling": ["percent": 12, "resetsAt": reset], "weekly": ["percent": "x"]]]
+        #expect(try #require(OpenCodeAPI.map(usage: usage)).map(\.key) == ["session"])
+    }
+
+    @Test func manyGrantsHoldAtMostAThousandExpiries() {
+        let grants = (0..<5).map { ["id": "g\($0)", "resets_left": 1000, "usable_now": true] as [String: Any] }
+        let (metric, list) = ClaudeAPI.grants(["cedar_ember": ["eligible": true, "grants": grants]])
+        guard case .resets(_, let expiries)? = metric?.value else { Issue.record("no resets row"); return }
+        #expect(expiries.count == 1000)
+        #expect(list.count == 5)
+    }
+
+    @Test func aWindowUnderAMinuteNeverLoopsTheResetPlan() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func line(_ period: Double?, resetsAt: Date) -> AILimitLine {
+            AILimitLine(
+                account: AIAccount(provider: .codex, label: "x", signIn: .borrowed),
+                metric: AIMetric(key: "session", title: "5 hours", value: .limit(used: 50, limit: 100, unit: .percent, resetsAt: resetsAt, period: period)))
+        }
+        // 1e-10 s never moved the reset time on: the loop ran forever on the main thread.
+        let tiny = AIResetPlan.lane(line(1e-10, resetsAt: now.addingTimeInterval(-10)), until: now.addingTimeInterval(AIResetPlan.span), now: now)
+        #expect(tiny?.period == nil && tiny?.refills.isEmpty == true)
+        // A reset time years back is moved on in one step, to the first one after now.
+        let old = AIResetPlan.lane(line(AIPeriod.session, resetsAt: Date(timeIntervalSince1970: 0)), until: now.addingTimeInterval(AIResetPlan.span), now: now)
+        let first = old?.refills.first ?? .distantPast
+        #expect(first > now && first <= now.addingTimeInterval(AIPeriod.session))
+        #expect(old?.refills.count == Int(AIResetPlan.span / AIPeriod.session))
+    }
+
+    @Test func aDeviceCodePollPauseFitsItsSleep() {
+        for asked in [0, -5, 1e15, 7] {
+            let pause = AISignInFlow.pollPause(asked)
+            #expect(pause >= 1 && pause <= 60)
+            #expect(UInt64(exactly: (pause * 1_000_000_000).rounded()) != nil)
+        }
+    }
+
+    @Test func onlyAUUIDIsKeptAsTheOrganization() {
+        #expect(ClaudeAPI.orgUUID("3f2a1c4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b") != nil)
+        for bad: Any? in ["../../v1/messages", "a b", "", nil, 42] { #expect(ClaudeAPI.orgUUID(bad) == nil, "\(String(describing: bad))") }
+    }
+}
+
+/// Class: trusting hardware numbers. The SMC can answer NaN or an infinity for a float key, and
+/// any number for "FNum"; neither may trap `Int(...)` or read the SMC a billion times.
+@Suite struct HardwareNumberTests {
+    @Test func nonFiniteFloatsAreNoReading() {
+        #expect(SMCDecode.number(type: "flt ", bytes: [0x00, 0x00, 0xC0, 0x7F]) == nil)  // NaN
+        #expect(SMCDecode.number(type: "flt ", bytes: [0x00, 0x00, 0x80, 0x7F]) == nil)  // +inf
+        #expect(SMCDecode.number(type: "flt ", bytes: [0x00, 0x00, 0x80, 0xFF]) == nil)  // -inf
+    }
+
+    @Test func aGarbageFanCountReadsAsNoFans() {
+        #expect(SensorNaming.fanCount(2) == 2 && SensorNaming.fanCount(1) == 1)
+        for bad: Double? in [nil, 0, -1, .infinity, .nan, 1e9, 17] { #expect(SensorNaming.fanCount(bad) == 0, "\(String(describing: bad))") }
+    }
+
+    @Test func aStepOutsideTheTableIsNoClock() {
+        #expect(ClockMath.activeMHz([("V-1P1", 10)], table: [1000]) == nil)
+        #expect(ClockMath.activeMHz([("V0P1", 10)], table: [1000]) == 1000)
+    }
+}
+
+/// Class: wall clock vs monotonic (power). A clock set back never freezes the power estimate.
+@Suite struct PowerClockTests {
+    @Test func aClockSetBackKeepsMeasuring() {
+        var w = PowerWindow(span: 10)
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        for i in 0..<3 { _ = w.add(PowerReading(cpu: 20, gpu: nil, ane: nil, dram: nil), at: t0 + Double(i * 2)) }  // 10 W
+        let back = t0 - 3600
+        _ = w.add(PowerReading(cpu: 4, gpu: nil, ane: nil, dram: nil), at: back)
+        let r = w.add(PowerReading(cpu: 4, gpu: nil, ane: nil, dram: nil), at: back + 2)  // 2 W since the clock went back
+        #expect(r?.cpu == 2)
+    }
+}
+
+/// Guards by grep: a new site of these classes fails here, not only the sites fixed.
+@Suite struct ServerDataGrepTests {
+    func source(_ name: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent("Sources/HeronCore/\(name)"), encoding: .utf8)
+    }
+
+    /// Counts read from a server or a log are summed with `addingSaturated`, never `+=` or `reduce(0, +)`.
+    @Test func serverAndLogCountsAreSummedSaturated() throws {
+        for file in ["AIProviders.swift", "AIStore.swift", "AIUsageService.swift"] {
+            let text = try source(file)
+            for bad in ["default: 0] +=", "reduce(0, +)"] { #expect(!text.contains(bad), "\(file) sums with \(bad)") }
+        }
+    }
+
+    /// The organization id goes into a URL path: every place that keeps or sends one checks it is a
+    /// UUID (`ClaudeAPI.orgUUID`) on that line or the one before.
+    @Test func everyOrganizationKeptIsChecked() throws {
+        for file in ["AIUsageService.swift", "AISignInFlow.swift"] {
+            let lines = try source(file).components(separatedBy: "\n")
+            for (i, line) in lines.enumerated() where line.contains("\"org_uuid\"") {
+                #expect(line.contains("orgUUID(") || (i > 0 && lines[i - 1].contains("orgUUID(")), "\(file): \(line.trimmingCharacters(in: .whitespaces))")
+            }
+        }
     }
 }

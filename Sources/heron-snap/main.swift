@@ -147,6 +147,11 @@ MainActor.assumeIsolated {
     caution.memory?.pressure = .warning
     caution.memory?.pressurePercent = 0.61
     render(PopoverView(kind: .overview, snapshot: caution), "popover-overview-caution")
+    // Launch, before the readings (`Snapshot.awaitingReadings`): each card its title alone, at its
+    // full size; no status pill, no number.
+    var awaiting = monitor.snapshot
+    awaiting.awaitingReadings = true
+    render(PopoverView(kind: .overview, snapshot: awaiting), "popover-overview-awaiting")
     panels.openNow(.memory)
     render(PopoverView(kind: .memory, snapshot: caution), "panel-memory-warning")
     panels.closeAll()

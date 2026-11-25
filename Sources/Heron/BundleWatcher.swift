@@ -34,13 +34,21 @@ final class BundleWatcher {
         // Mid-copy the executable can be missing: wait for the next tick.
         guard let now = Self.identity(executable), now.inode != launched.inode || now.modified != launched.modified else { return }
         guard FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Contents/Info.plist").path) else { return }
-        relaunching = true
         let pid = ProcessInfo.processInfo.processIdentifier
         let relaunch = Process()
         relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
         // Wait for this process to exit, then open the new copy.
         relaunch.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; /usr/bin/open \"$0\"", bundle.path]
-        try? relaunch.run()
+        do {
+            try relaunch.run()
+        } catch {
+            // Nothing would start the new copy: quitting now would leave no Heron at all. Keep
+            // running this one, and stop watching this build (the next install is a new one).
+            NSLog("Heron: could not start the new copy (\(error.localizedDescription)); keeping this one")
+            self.launched = now
+            return
+        }
+        relaunching = true
         // AppKit declines `terminate` while a sheet is attached (seen 2026-11-22 with Settings'
         // "Couldn't sign in" sheet up): close sheets first, and exit outright if it still declines.
         // Settings are already saved (UserDefaults writes as they change).

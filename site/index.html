@@ -258,7 +258,7 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
         </tbody>
       </table>
     </div>
-    <p class="note">Every reading is cross-checked in Heron's tests against a second macOS API, so a parsing mistake shows up as a mismatch.</p>
+    <p class="note">The public readings (CPU, memory, network, disk, battery) are cross-checked in Heron's tests against a second macOS API, so a parsing mistake shows up as a mismatch; fans and clocks are held to their own limits.</p>
   </section>
 
   <section class="sec" id="ai">
@@ -269,7 +269,7 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
         <p class="mute">Claude, ChatGPT (Codex) and OpenCode: every limit with what's left, when it resets, and whether the current pace runs out first. The card shows the most urgent ones, or the ones you pick, and they can sit in the menu bar too.</p>
         <ul>
           <li>Sign in in your browser, or let Heron borrow the sign-in Claude Code or Codex already saved. A borrowed sign-in is only read, never renewed.</li>
-          <li>Each limit reset says what it refills, and Heron asks before spending one.</li>
+          <li>Limit resets on a 30-day strip: when each runs out, what it would refill now, and whether to use it before it is lost. Heron asks before spending one.</li>
           <li>Today and Yesterday are your own days, in your time zone.</li>
         </ul>
         <p class="note">This screen uses example accounts.</p>
@@ -279,7 +279,7 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
 
   <section class="sec">
     <h2>Heron only reads</h2>
-    <p class="mute">It never changes fan speeds, power settings or anything else on your Mac, so it needs no root helper and no background service. Your readings stay on your Mac. It goes online only for what you turn on: your AI plan usage, straight to each provider, and update checks once releases begin.</p>
+    <p class="mute">It never changes fan speeds, power settings or anything else on your Mac, so it needs no root helper and no background service. Your readings stay on your Mac. It goes online only for what you turn on: your AI plan usage, straight to each provider, your public IP address when you ask for it, and update checks once releases begin.</p>
   </section>
 
   <section class="sec" id="get">

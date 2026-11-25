@@ -22,7 +22,8 @@ Sources/
   CSystem/      C: SMC (fans, temperatures), HID temperature sensors, IOReport energy. Private APIs.
   HeronCore/    Swift, no UI: one sampler per subsystem, Snapshot model, history, alerts, AI usage.
   HeronUI/      SwiftUI: overview and detail panels, menu bar item, Settings, AI usage, icons, theme, warnings.
-  Heron/        The app: status item, popover, detail panel windows, windows, notifications, Sparkle.
+  Heron/        The app: status item, popover, detail panel windows, windows, notifications, Sparkle,
+                the AI shortcut, reload on install, `Heron usage --json`.
   heron-probe/  CLI that prints every reading once.
   heron-snap/   Renders every screen to PNG (light and dark) and the app icon.
 Tests/          HeronCoreTests (samplers, maths, AI parsing) and HeronUITests (views, settings, guards).
@@ -94,7 +95,14 @@ Claude, ChatGPT (Codex) and OpenCode limits, following [OpenUsage](https://githu
   limits (pinned, then running out, then burning fast), the ones pinned, or the ones you chose.
 - **Limit resets.** Each reset says what it refills: Claude marks grants as 5-hour, weekly, Fable
   or full (`ClaudeAPI.kind`, the rule Claude Code uses); ChatGPT credits always refill the 5-hour
-  and weekly limits (full). Spending one always asks first.
+  and weekly limits (full). Which rows a reset refills comes from the grant's `clears` (Claude) or
+  is both limits (ChatGPT), kept as `AIResetGrant.refills`. The "Limit resets" row opens beside the
+  panel like a history (`HistorySource.aiResets`, `AIResetsPage`): a 30-day strip of when each
+  reset runs out and when each limit it refills refills itself or is out (`AIResetPlan`), one
+  sentence on what matters most, each kind with what it would give back now, and "Use…".
+  Hovering the strip lights the day under the pointer and reads it out (`AIResetPlan.day(at:)`):
+  the date, how many days away, and the resets running out, refills and time out on it. Amber
+  when a reset runs out within 7 days (`Warnings.resetSoon`). Spending one always asks first.
 - **Local time.** Every day Heron shows is a local day. ChatGPT's analytics only has whole UTC days
   (`group_by` takes day, week or month; no hours), so Today and Yesterday come from the Codex CLI's
   own logs; checked against ChatGPT's totals on real data.
@@ -127,12 +135,14 @@ earlier build still fails.
 |---|---|
 | Formatting (`.swift-format`) | `swift format lint --strict --recursive Sources Tests Package.swift` |
 | Lint (`.swiftlint.yml`; `brew install swiftlint`) | `swiftlint lint --strict` |
+| Site links: every local file and in-page `#anchor` `site/index.html` links to exists | (in `check.sh`) |
 | Debug build, every target, 0 warnings | `swift build` |
 | Release build | `swift build -c release` |
 | Tests (unit, guards, live cross-checks on this Mac) | `swift test` |
 | Every screen in light and dark, as PNG | `swift run heron-snap <folder>` |
 
-`--fast` runs format, lint and the debug build (what the pre-commit hook runs); `--fix` applies the
+`--fast` runs format, lint, site links and the debug build (the pre-commit hook runs the same on
+the staged Swift files, without site links; pre-push runs the full set); `--fix` applies the
 formatter and SwiftLint's autofixes (always run the full gate after it: one autofix once broke the
 build). `scripts/install-hooks.sh` turns on `.githooks` in a git clone: pre-commit checks the
 staged files, pre-push runs the full `check.sh`. Formatter and linter choices and their reasons:
@@ -149,13 +159,18 @@ By hand, never in `check.sh`:
 
 **The smoke run** opens every window, the popover and a detail panel, logs where the panel sits
 against its card, drives the popover with posted events (a click on a panel row, Esc three times, a
-click outside), checks that the closed popover and hidden panels let go of their views, and
-measures idle CPU with everything closed. Any `SMOKE FAIL:` line is a failure. It never moves the
+click outside), checks that the closed popover and hidden panels let go of their views, that
+Privacy Mode hides every window and the Settings sheet from recordings (the status item's own window
+ignores it on macOS 27.2), that the first readings have arrived, and measures idle CPU with
+everything closed. Any `SMOKE FAIL:` line is a failure. It never moves the
 real pointer, but it does put windows on your screen for a few seconds.
 
-**Live tests** compare each sampler with a second, independent macOS API (our 64-bit network
-counters with `getifaddrs`, our CPU load with `host_statistics`, …), so a parsing mistake shows up
-as a mismatch instead of a believable wrong number.
+**Live tests** (`LiveCrossCheckTests`) compare the public readings with a second, independent
+macOS API (our 64-bit network counters with `getifaddrs`, our CPU load with `host_statistics`,
+memory with `sysctl`, the startup disk with `statfs`, the battery with its registry entry), so a
+parsing mistake shows up as a mismatch instead of a believable wrong number. Readings with no second
+source are held to their own bounds: fans within their minimum and maximum, CPU clocks inside their
+frequency tables, disk totals since boot only growing.
 
 **Guard tests** enforce whole classes of past defects: one source per reading, one rule per
 warning, colours only from the palette, no `.global` frames, every setting reset and shown in

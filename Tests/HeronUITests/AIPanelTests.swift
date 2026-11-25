@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -118,26 +119,101 @@ import Testing
         #expect(AIRowModel(entry: money, settings: o, now: now) == nil)
     }
 
-    /// The resets list: each reset by kind (title and one line), soonest expiry first, a grant with
-    /// two resets left listed twice, the kinds of every account the card stands for.
-    @Test func theResetsListShowsEachKindInExpiryOrder() {
+    /// Class: a fixed column narrower than its widest text. "Resets in 23h 59m" (102 pt) and a
+    /// 12-hour "Resets Wed 10:59 PM" overflowed the 78 pt reset column onto the amount; the card's
+    /// column now takes its widest row's text, the same for every row.
+    @Test func theResetColumnHoldsItsWidestText() {
         let a = AIAccount(id: "a", provider: .claude, label: "P", signIn: .oauth)
-        let soon = now.addingTimeInterval(86400), later = now.addingTimeInterval(5 * 86400), last = now.addingTimeInterval(9 * 86400)
-        let reading = AIReading(grants: [
-            AIResetGrant(id: "1", expiresAt: last, usableNow: false, detail: "", kind: .full),
-            AIResetGrant(id: "2", expiresAt: later, usableNow: true, detail: "", kind: .weekly, count: 2),
-            AIResetGrant(id: "3", expiresAt: soon, usableNow: false, detail: "", kind: .fable),
-            AIResetGrant(id: "4", expiresAt: later.addingTimeInterval(60), usableNow: false, detail: "", kind: .fiveHour),
-        ])
-        let lines = AIResetsRow.lines([a], readings: [a.id: reading])
-        #expect(lines.map(\.title) == ["Fable reset", "Weekly reset", "Weekly reset", "5-hour reset", "Full reset"])
-        #expect(
-            lines.map(\.summary) == [
-                "Refills Fable and gives back its weekly use", "Refills your weekly limit", "Refills your weekly limit",
-                "Refills your 5-hour limit", "Refills your 5-hour and weekly limits",
-            ])
-        #expect(lines.map(\.expiry) == [soon, later, later, later.addingTimeInterval(60), last].map(AIText.expiry))
-        #expect(!lines.contains { $0.title.hasPrefix("Reset ") })
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
+        func width(_ s: String) -> CGFloat { (s as NSString).size(withAttributes: [.font: font]).width }
+        let o = AIUsageSettings()
+        // 22% used with a day to go: use it or lose it ("Resets in 23h 59m").
+        let soon = AIPriorityBoard.Entry(
+            line: AILimitLine(account: a, metric: limit("weekly", used: 22, resetsIn: 86_340)), reason: .useItOrLoseIt(resetsAt: now.addingTimeInterval(86_340)))
+        let short = AIPriorityBoard.Entry(line: AILimitLine(account: a, metric: limit("sonnet", used: 10, resetsIn: 3 * 86400)), reason: nil)
+        let rows = [soon, short].compactMap { AIRowModel(entry: $0, settings: o, now: now) }
+        #expect(rows.first?.reset == "Resets in 23h 59m")
+        let column = AIRowLayout.resetWidth(rows)
+        for row in rows { #expect(width(row.reset ?? "") <= column, "\(row.reset ?? "")") }
+        #expect(AIRowLayout.resetWidth([rows[1]]) == AIRowLayout.reset)  // short text keeps the design's width
+        // The clock form on a 12-hour locale is wider still.
+        var row = rows[0]
+        row.reset = "Resets Wed 10:59 PM"
+        #expect(width("Resets Wed 10:59 PM") <= AIRowLayout.resetWidth([row]))
+    }
+
+    /// The Limit resets row opens the account's resets beside the panel like a history row, and
+    /// its count turns amber only while a reset runs out within `Warnings.resetSoon`.
+    @Test func theResetsRowOpensTheAccountsResetsAndWarnsBeforeOneIsLost() {
+        let a = AIAccount(id: "a", provider: .claude, label: "P", signIn: .oauth)
+        let item = AIResetsRow.item(a)
+        #expect(item.source == .aiResets(account: "a") && item.part == .ai && item.isAIResets)
+        let soon = AIResetGrant(id: "1", expiresAt: now.addingTimeInterval(Warnings.resetSoon - 60), usableNow: true, detail: "", kind: .full)
+        let later = AIResetGrant(id: "2", expiresAt: now.addingTimeInterval(Warnings.resetSoon + 60), usableNow: true, detail: "", kind: .weekly)
+        let undated = AIResetGrant(id: "3", expiresAt: nil, usableNow: true, detail: "", kind: .weekly)
+        #expect(AIResetsRow.color([later, soon], now: now) == Theme.caution)
+        #expect(AIResetsRow.color([later, undated], now: now) == .primary)
+        #expect(AIResetsRow.color([], now: now) == .primary)
+    }
+
+    /// The strip's hover readout: the day and how far it is, then one line per thing on it; a
+    /// whole day out says when it is back, and a refill that ends the time out is said once.
+    @Test func theHoverReadoutSaysWhatHappensThatDay() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let start = utc.startOfDay(for: now), back = start.addingTimeInterval(1.5 * 86400)
+        func day(_ away: Int, _ items: [AIResetPlan.Day.Item]) -> AIResetPlan.Day {
+            let s = start.addingTimeInterval(Double(away) * 86400)
+            return AIResetPlan.Day(start: s, end: s.addingTimeInterval(86400), daysAway: away, items: items)
+        }
+        #expect(AIResetDayReadout.title(day(0, []), calendar: utc).hasSuffix(" · today"))
+        #expect(AIResetDayReadout.title(day(1, []), calendar: utc).hasSuffix(" · tomorrow"))
+        #expect(AIResetDayReadout.title(day(16, []), calendar: utc).hasSuffix(" · in 16 days"))
+        #expect(AIResetDayReadout.lines(day(4, []), now: now, calendar: utc).isEmpty)
+
+        let clock = AIText.clock(back, calendar: utc)
+        let allDay = AIResetDayReadout.lines(day(1, [.out("Weekly", from: nil, until: nil, back: back)]), now: now, calendar: utc)
+        #expect(allDay.map(\.text) == ["out all day", "back \(AIDuration.reset(back, absolute: true, now: now, calendar: utc)!)"])
+        #expect(allDay[0].out && allDay[1].muted && allDay[1].mark == .none)
+
+        let backDay = AIResetDayReadout.lines(
+            day(1, [.out("Weekly", from: nil, until: back, back: back), .refills("Weekly", back), .refills("Fable", back), .refillsEvery("5 hours", AIPeriod.session)]),
+            now: now, calendar: utc)
+        #expect(backDay.map(\.text) == ["out until \(clock)", "refills \(clock)", "refills every 5h"])
+        #expect(backDay.map(\.mark) == [.text("Weekly"), .text("Fable"), .text("5 hours")])
+
+        let lost = AIResetDayReadout.lines(day(16, [.expires(.weekly, back)]), now: now, calendar: utc)
+        #expect(lost == [.init(mark: .diamond, text: "Weekly reset runs out \(clock)")])
+    }
+
+    /// The pointer within `snap` points of a diamond takes that reset's own moment; further off, the
+    /// moment under it.
+    @Test func thePointerSnapsToANearbyReset() {
+        let a = AIAccount(id: "a", provider: .claude, label: "P", signIn: .oauth)
+        let expiry = now.addingTimeInterval(15 * 86400)
+        let plan = AIResetPlan.make(
+            account: a, reading: AIReading(grants: [AIResetGrant(id: "w", expiresAt: expiry, usableNow: true, detail: "", kind: .weekly)]),
+            soon: Warnings.resetSoon, now: now)
+        let width: CGFloat = 300, at = 0.5  // the reset sits at half the strip, x 150
+        let near = AIResetStrip.moment(plan, pointer: at + Double(AIResetStrip.snap - 1) / Double(width), width: width)
+        #expect(near.date == expiry && near.expiry == expiry)
+        let off = AIResetStrip.moment(plan, pointer: at + Double(AIResetStrip.snap + 2) / Double(width), width: width)
+        #expect(off.expiry == nil && off.date > expiry)
+        #expect(AIResetStrip.moment(plan, pointer: 2, width: width).date == now.addingTimeInterval(AIResetPlan.span))  // clamped
+    }
+
+    /// A reset's run-out line: local day, date and time, then the countdown.
+    @Test func aResetSaysWhenItRunsOutInLocalTime() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Pacific/Auckland")!
+        let date = now.addingTimeInterval(15 * 86400 + 10 * 3600)
+        let text = AIText.resetDate(date, calendar: calendar)
+        let hour = calendar.component(.hour, from: date), minute = calendar.component(.minute, from: date)
+        let twelve = hour.isMultiple(of: 12) ? 12 : hour - (hour > 12 ? 12 : 0)
+        #expect(text.contains(String(format: "%02d:%02d", hour, minute)) || text.contains("\(twelve):\(String(format: "%02d", minute))"))
+        #expect(!text.contains("UTC") && !text.contains("GMT"))
+        #expect(AIResetsPage.runsOut(date, now: now).hasSuffix(" · 15d 10h"))
+        #expect(AIResetsPage.runsOut(date, now: now).hasPrefix("runs out "))
     }
 
     @Test func thePaceMarkSitsAtTheShareOfTheWindowGone() {

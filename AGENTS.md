@@ -10,9 +10,9 @@ This file holds the rules for changing it.
 | Target | What lives there |
 |---|---|
 | `CSystem` | C for private APIs with no Swift headers: SMC, HID sensors, IOReport |
-| `HeronCore` | Samplers, `Snapshot` model, `MetricHistory` / `TieredHistory`, formatting, alerts. AI usage: `AIModels`, `AIProviders` (endpoints and mapping), `AIAuth` / `AISignInFlow` (sign-in), `AIStore` (Keychain, borrowed sign-ins), `AIUsageService` (refresh), `AIPriority` (pace, urgency ranking), `AIAlerts`, `AIUsageExport` (`Heron usage --json`). No UI |
-| `HeronUI` | Every view: overview (`PopoverView`, `OverviewCards`, `OverviewSections`, `PopoverParts`, `HistoryViews`, `Summaries` for `FanSummary` / `SensorSummary`), detail panels (`DetailPanels`, `PanelRows`), menu bar item (`MenuBarLabel`), Settings (`SettingsView`, `SettingsParts`, one file per pane: `SettingsMenuBar`, `SettingsOverview`, `SettingsAlerts`, `SettingsUpdates`), `AboutView`, AI usage (`AICard`, `AIPanel`, `SettingsAIUsage`, `SettingsMenuBarAI`, `SettingsOverviewAI`, `AISettings`, `ProviderMarks`), icons, `Theme`, `Warnings` |
-| `Heron` | The app: `StatusBarController` (status item, popover, panel; its smoke hooks in `StatusBarController+Smoke`), `DetailPanelWindow`, `WindowManager`, notifications, Sparkle |
+| `HeronCore` | Samplers, `Snapshot` model, `MetricHistory` / `TieredHistory`, formatting, alerts. AI usage: `AIModels`, `AIProviders` (endpoints and mapping), `AIAuth` / `AISignInFlow` (sign-in), `AIStore` (Keychain, borrowed sign-ins), `AIUsageService` (refresh), `AIPriority` (pace, urgency ranking), `AIResetPlan` (the limit resets strip), `AIAlerts`, `AIUsageExport` (`Heron usage --json`). No UI |
+| `HeronUI` | Every view: overview (`PopoverView`, `OverviewCards`, `OverviewSections`, `PopoverParts`, `HistoryViews`, `Summaries` for `FanSummary` / `SensorSummary`), detail panels (`DetailPanels`, `PanelRows`), menu bar item (`MenuBarLabel`), Settings (`SettingsView`, `SettingsParts`, one file per pane: `SettingsMenuBar`, `SettingsOverview`, `SettingsAlerts`, `SettingsUpdates`), `AboutView`, AI usage (`AICard`, `AIPanel`, `AIResetsPage`, `SettingsAIUsage`, `SettingsMenuBarAI`, `SettingsOverviewAI`, `AISettings`, `ProviderMarks`), icons, `Theme`, `Warnings` |
+| `Heron` | The app: `AppDelegate` (wires the parts together; `main` answers `Heron usage --json` before any UI), `StatusBarController` (status item, popover, panel; its smoke hooks in `StatusBarController+Smoke`), `DetailPanelWindow`, `WindowManager`, `BundleWatcher` (reload when the installed copy is replaced), `HotKey` (the AI panel shortcut), notifications and Sparkle (`Services`) |
 | `heron-probe` | Prints every reading once. Prove a new data source here before any UI uses it |
 | `heron-snap` | Renders every screen to PNG in light and dark |
 | `site/` | The website: one static `index.html` and real `heron-snap` renders in `site/img`; published to GitHub Pages by `.github/workflows/pages.yml` |
@@ -21,8 +21,8 @@ This file holds the rules for changing it.
 
 ```sh
 scripts/check.sh                              # the one gate runner: format lint, swiftlint, site links, the builds, swift test, heron-snap
-scripts/check.sh --fast                       # format lint, swiftlint, site links, debug build (what pre-commit runs)
-scripts/check.sh --fix                        # swift format in place, then swiftlint --fix
+scripts/check.sh --fast                       # format lint, swiftlint, site links, debug build (pre-commit runs the same on staged Swift files, without site links)
+scripts/check.sh --fix                        # swift format in place, then swiftlint --fix, then swift format again
 scripts/install-hooks.sh                      # once per clone: pre-commit (staged files) and pre-push (check.sh) hooks
 ```
 
@@ -32,7 +32,7 @@ builds use `.build/gate` with warnings as errors, so a warning cached by an earl
 ```sh
 swift format lint --strict --recursive Sources Tests Package.swift
 swiftlint lint --strict
-# site links: every local file site/index.html points to exists
+# site links: every local file and #anchor site/index.html points to exists
 swift build                                   # debug, every target; must have 0 warnings
 swift build -c release
 swift test                                    # unit, guard and live cross-check tests
@@ -69,7 +69,8 @@ Heron within 2 s when the installed copy is replaced).
   `AIProviders.swift`; spending a limit reset always asks first.
 - **No placeholders.** A reading this Mac cannot provide hides its row, card or menu bar item. Never
   show "—", "0 rpm" or invented values. Panel rows are built in `PanelRows.swift`; menu bar items
-  are filtered by `MenuBarLabel.hasSource`.
+  are filtered by `MenuBarLabel.hasSource`. A reading still on its way (`Snapshot.awaitingReadings`,
+  the first half second) is not a missing one: the surface keeps its size and draws no number.
 - **One source per reading.** Temperatures come from `SensorSummary`, fans from `FanSummary`,
   battery temperature from `Snapshot.batteryCelsius`. A value shown in several places (menu bar,
   card in every style, panel, history) comes from the same helper.

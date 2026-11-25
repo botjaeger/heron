@@ -26,6 +26,14 @@ enum Warnings {
     /// A volume's meter colour: the text colour, red when nearly full.
     static func color(volume: VolumeReading) -> Color { isNearlyFull(volume) ? Theme.warning : .primary }
 
+    /// A limit reset that runs out within a week is shown amber: use it or lose it.
+    static let resetSoon: TimeInterval = 7 * 86400
+
+    static func isResetExpiringSoon(_ date: Date?, now: Date = Date()) -> Bool {
+        guard let date else { return false }
+        return date.timeIntervalSince(now) <= resetSoon
+    }
+
     /// The full scale of a temperature's mini bar in the Sensors panel (a scale, not a warning).
     static let barScaleCelsius = 110.0
 }

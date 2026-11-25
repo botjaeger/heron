@@ -193,7 +193,7 @@ public enum BorrowedSignIn {
                 sums = read(url).map { codexDaySums($0, calendar: calendar) } ?? [:]
                 cache.set(url.path, stamp, sums)
             }
-            for (day, n) in sums { out[day, default: 0] += n }
+            for (day, n) in sums { out[day] = (out[day] ?? 0).addingSaturated(n) }
         }
         cache.keep(Set(files.map(\.path)))
         return out
@@ -215,7 +215,7 @@ public enum BorrowedSignIn {
             let total = AIParse.number((info["total_token_usage"] as? [String: Any])?["total_tokens"])
             if let total, total == lastTotal { continue }
             lastTotal = total
-            out[calendar.startOfDay(for: at), default: 0] += n
+            let day = calendar.startOfDay(for: at); out[day] = (out[day] ?? 0).addingSaturated(n)
         }
         return out
     }

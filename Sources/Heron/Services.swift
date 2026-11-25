@@ -37,6 +37,15 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// While Heron is the active app (Settings or the popover in front), macOS drops a notification
+    /// unless its delegate asks for it to be shown: an alert fired then was never seen.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+    }
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping @Sendable () -> Void
@@ -64,15 +73,6 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
             let permission = NotificationPermission(settings.authorizationStatus)
             DispatchQueue.main.async { done(permission) }
         }
-    }
-
-    func notify(title: String, body: String) {
-        NSLog("Heron: \(title) — \(body)")
-        guard canNotify else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
     func evaluate(rules: [AlertRule], snapshot: Snapshot, cooldown: Bool, unit: Format.TemperatureUnit) {

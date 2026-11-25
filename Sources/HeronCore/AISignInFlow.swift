@@ -143,7 +143,7 @@ public final class AISignInFlow {
         let acct = profile["account"] as? [String: Any], org = profile["organization"] as? [String: Any]
         let email = (acct?["email"] as? String) ?? (profile["email"] as? String) ?? "Claude Account"
         let identity = "\(acct?["uuid"] as? String ?? email)/\(org?["uuid"] as? String ?? "")"
-        return (AIAccount(provider: .claude, label: email, signIn: .oauth, extras: ["identity": identity, "org_uuid": org?["uuid"] as? String ?? ""]), t)
+        return (AIAccount(provider: .claude, label: email, signIn: .oauth, extras: ["identity": identity, "org_uuid": ClaudeAPI.orgUUID(org?["uuid"]) ?? ""]), t)
     }
 
     private func codex() async throws -> (AIAccount, AITokens) {
@@ -167,15 +167,19 @@ public final class AISignInFlow {
         return (AIAccount(provider: .codex, label: email, signIn: .oauth, extras: ["identity": "\(account)/\(email)", "chatgpt_account_id": account]), t)
     }
 
+    /// The pause between device-code polls the server asked for, kept within 1 s and a minute.
+    nonisolated static func pollPause(_ requested: Double) -> Double { min(60, max(1, requested)) }
+
     private func opencode() async throws -> (AIAccount, AITokens) {
         let (s, body) = try await AIAuth.postForm(OpenCodeAPI.deviceCodeURL, [("client_id", OpenCodeAPI.clientID), ("supports_org_scope", "true")], session: session)
         guard (200..<300).contains(s), let dc = OpenCodeAPI.deviceCode(body) else { throw AIAuthError.http(s, AIAuth.errorMessage(body)) }
         try Task.checkCancellation()
         step = .device(dc)
         openURL(dc.verificationURL)
-        // At least a second between polls: an `interval` of 0 (or less) polled without a pause.
-        var interval = max(1, dc.interval)
-        let deadline = Date().addingTimeInterval(dc.expiresIn)
+        // At least a second between polls (an `interval` of 0 polled without a pause), at most a
+        // minute, and an hour in all: a server's 1e15 overflowed the sleep's nanoseconds (a trap).
+        var interval = Self.pollPause(dc.interval)
+        let deadline = Date().addingTimeInterval(min(3600, dc.expiresIn))
         while Date() < deadline {
             try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             guard
@@ -195,7 +199,7 @@ public final class AISignInFlow {
             }
             switch AIAuth.errorCode(pb) {
             case "authorization_pending"?: continue
-            case "slow_down"?: interval += 5
+            case "slow_down"?: interval = Self.pollPause(interval + 5)
             case "expired_token"?: throw AIAuthError.timedOut
             case "access_denied"?: throw AIAuthError.denied("access_denied")
             default:

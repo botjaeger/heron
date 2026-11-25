@@ -39,6 +39,7 @@ static heron_ioreport *create(CFStringRef group, CFStringRef subgroup) {
     CopyChannelsInGroup_t copyChannels = (CopyChannelsInGroup_t)dlsym(lib, "IOReportCopyChannelsInGroup");
     CreateSubscription_t createSub = (CreateSubscription_t)dlsym(lib, "IOReportCreateSubscription");
     heron_ioreport *r = calloc(1, sizeof(heron_ioreport));
+    if (!r) { dlclose(lib); return NULL; }
     r->lib = lib;
     r->createSamples = (CreateSamples_t)dlsym(lib, "IOReportCreateSamples");
     r->createDelta = (CreateSamplesDelta_t)dlsym(lib, "IOReportCreateSamplesDelta");

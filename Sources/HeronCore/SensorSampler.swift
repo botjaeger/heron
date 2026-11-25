@@ -66,8 +66,8 @@ public final class SensorSampler {
     }
 
     public func fans() -> [Fan] {
-        guard let smc, let count = smc.number("FNum"), count > 0 else { return [] }
-        let total = Int(count)
+        guard let smc else { return [] }
+        let total = SensorNaming.fanCount(smc.number("FNum"))
         return (0..<total).compactMap { i in
             guard let rpm = smc.number("F\(i)Ac") else { return nil }
             let name = total == 2 ? (i == 0 ? "Left" : "Right") : (total == 1 ? "Fan" : "Fan \(i + 1)")
@@ -80,6 +80,13 @@ public final class SensorSampler {
 
 /// Turns raw sensor keys/names into readable, grouped sensors. Pure, unit tested.
 public enum SensorNaming {
+    /// The fan count from the SMC's "FNum", 0 to 16 (as many as keep a history): a garbage value
+    /// (an infinity trapped `Int(...)`, a billion read the SMC a billion times a sample) reads as none.
+    public static func fanCount(_ v: Double?) -> Int {
+        guard let v, v.isFinite, v >= 1, v <= Double(MetricHistory.maxItems) else { return 0 }
+        return Int(v)
+    }
+
     /// Unused sensor slots report a fixed whole number (40.0 °C on an M3 Max, dozens of keys at once).
     /// A whole-number value shared by 4 or more keys is treated as a placeholder and dropped.
     /// Readings that can be real temperatures: inside 5…130 °C and not a shared placeholder.

@@ -39,6 +39,17 @@ public struct AIUsageSettings: Codable, Equatable, Sendable {
 
     public init() {}
 
+    /// These settings with a removed account forgotten: every list keyed by its limits'
+    /// ids ("accountID/metricKey") drops them. Every removal path goes through this (its pins
+    /// and hidden limits live on the account and go with it).
+    public func forgetting(account id: String) -> AIUsageSettings {
+        var s = self
+        let gone = id + "/"
+        s.menuChosen.removeAll { $0.hasPrefix(gone) }
+        s.cardChosen.removeAll { $0.hasPrefix(gone) }
+        return s
+    }
+
     public var boardOptions: AIPriorityBoard.Options {
         AIPriorityBoard.Options(thresholds: thresholds, burningFast: true, useItOrLoseIt: true)
     }

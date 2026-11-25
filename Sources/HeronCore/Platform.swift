@@ -62,6 +62,16 @@ extension Double {
     public var unitClamped: Double { Swift.min(1, Swift.max(0, self.isFinite ? self : 0)) }
 }
 
+extension FixedWidthInteger {
+    /// `self + other`, stopping at the type's bounds instead of trapping: totals of counts read
+    /// from a server or a log file (a malformed one can repeat 1e15 thousands of times).
+    public func addingSaturated(_ other: Self) -> Self {
+        let (sum, overflow) = addingReportingOverflow(other)
+        guard overflow else { return sum }
+        return other > 0 ? .max : .min
+    }
+}
+
 extension String {
     /// Text from a NUL-terminated C buffer (`String(cString:)` on an array is deprecated).
     init(cBuffer: [CChar]) {

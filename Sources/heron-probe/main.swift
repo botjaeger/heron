@@ -63,8 +63,11 @@ if CommandLine.arguments.contains("--ai") {
         print("== Codex session logs, local days (\(TimeZone.current.identifier)):", days.isEmpty ? "no sessions folder" : "")
         for m in days { if case .tokens(let n) = m.value { print("   \(m.title): \(n) tokens") } }
         fflush(stdout)  // before Claude's Keychain read, which can wait on a prompt
-        for provider in [AIProvider.claude, .codex] {
-            let account = AIAccount(provider: provider, label: "probe", signIn: .borrowed)
+        let probes = [AIProvider.claude, .codex].map { AIAccount(provider: $0, label: "probe", signIn: .borrowed) }
+        // Listed first: the service keeps the hourly reads (plan, resets) only for accounts it has.
+        service.setPreview(accounts: probes, readings: [:])
+        for account in probes {
+            let provider = account.provider
             let r = await service.read(account, forceHourly: true)
             print("== \(provider.name) plan \(r.plan ?? "-") problem \(r.problem.map { "\($0)" } ?? "none") at \(r.fetchedAt)")
             for m in r.metrics {

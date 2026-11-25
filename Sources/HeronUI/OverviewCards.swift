@@ -30,6 +30,7 @@ struct OverviewSection: View {
     /// A card that needs attention (red border and ›): a hot CPU, GPU or sensor, critical memory
     /// pressure, a nearly full startup disk, a low battery. Thresholds from `Warnings` only.
     static func isHot(_ part: OverviewPart, in s: Snapshot) -> Bool {
+        guard !s.awaitingReadings else { return false }  // no warning before the numbers it is about
         switch part {
         case .cpu: return SensorSummary.value(.cpu, in: s).map(Warnings.isHot) ?? false
         case .gpu: return SensorSummary.value(.gpu, in: s).map(Warnings.isHot) ?? false
@@ -85,7 +86,25 @@ struct OverviewSection: View {
         }
     }
 
-    @ViewBuilder private func card(_ part: OverviewPart, ai model: AICardModel?) -> some View {
+    /// A card with no readings yet (`Snapshot.awaitingReadings`, the first half second) keeps its
+    /// size and draws its title alone, where its title sits: no "0%", no "–", and no jump when
+    /// the numbers arrive. AI usage has readings of its own.
+    private func card(_ part: OverviewPart, ai model: AICardModel?) -> some View {
+        let waiting = s.awaitingReadings && part != .ai
+        return VStack(alignment: .leading, spacing: 10) { cardContent(part, ai: model) }
+            .opacity(waiting ? 0 : 1)
+            .overlayPreferenceValue(CardTitleAnchor.self) { anchor in
+                if waiting, let anchor {
+                    GeometryReader { geo in
+                        let frame = geo[anchor]
+                        // Leading: the anchor also spans a chip (memory pressure) the title alone leaves out.
+                        title(part).frame(width: frame.width, height: frame.height, alignment: .leading).position(x: frame.midX, y: frame.midY)
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder private func cardContent(_ part: OverviewPart, ai model: AICardModel?) -> some View {
         switch part {
         case .cpu: cpuCard
         case .gpu: gpuCard
@@ -109,6 +128,7 @@ struct OverviewSection: View {
 
     /// What VoiceOver reads for a card: "CPU, 34%, shows details".
     private func spokenValue(_ part: OverviewPart, ai model: AICardModel?) -> String {
+        if s.awaitingReadings && part != .ai { return "no reading yet" }
         switch part {
         case .cpu: return Format.percent(s.cpu?.total ?? 0)
         case .gpu: return Format.percent(s.gpu?.device ?? 0)
@@ -132,22 +152,23 @@ struct OverviewSection: View {
     // MARK: Pieces
 
     /// The tile, the title, an optional chip, and the "…" menu while the pointer is on the card.
-    private func title(_ part: OverviewPart, chip: (text: String, color: Color)? = nil) -> some View {
+    private func title(_ part: OverviewPart, chip: (text: String, tint: Theme.Tint)? = nil) -> some View {
         HStack(spacing: 8) {
-            IconTile(part: part, battery: s.battery)
+            IconTile(part: part, battery: s.awaitingReadings ? nil : s.battery)
             Text(part.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(part.titleColor).lineLimit(1)
             if let chip {
-                Text(chip.text).font(.system(size: 11, weight: .semibold)).foregroundStyle(chip.color)
+                Text(chip.text).font(.system(size: 11, weight: .semibold)).foregroundStyle(chip.tint.text)
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(chip.color.opacity(0.16), in: Capsule())
+                    .background(chip.tint.fill, in: Capsule())
                     .fixedSize()
             }
             CardMenuButton(part: part)
         }
         .frame(minHeight: 26)
+        .anchorPreference(key: CardTitleAnchor.self, value: .bounds) { $0 }
     }
 
-    private func header(_ part: OverviewPart, _ number: String, unit: String = "", chip: (text: String, color: Color)? = nil) -> some View {
+    private func header(_ part: OverviewPart, _ number: String, unit: String = "", chip: (text: String, tint: Theme.Tint)? = nil) -> some View {
         HStack {
             title(part, chip: chip)
             Spacer(minLength: 8)
@@ -208,7 +229,7 @@ struct OverviewSection: View {
     /// GPU and the memory graph: a percentage drawn as a bar, a ring or a graph, a note under it.
     @ViewBuilder private func percentCard(
         _ part: OverviewPart, style: CardStyle, fraction: Double, metric: Metric, color: Color, note: Text?,
-        chip: (text: String, color: Color)? = nil
+        chip: (text: String, tint: Theme.Tint)? = nil
     ) -> some View {
         switch style {
         case .ring:
@@ -260,10 +281,10 @@ struct OverviewSection: View {
     }
 
     /// Memory's chip after the title: the pressure level when it is not normal.
-    private var pressureChip: (text: String, color: Color)? {
+    private var pressureChip: (text: String, tint: Theme.Tint)? {
         switch s.memory?.pressure {
-        case .warning: return ("Warning", Theme.caution)
-        case .critical: return ("Critical", Theme.warning)
+        case .warning: return ("Warning", .caution)
+        case .critical: return ("Critical", .warning)
         default: return nil
         }
     }
@@ -374,6 +395,12 @@ struct OverviewSection: View {
         }
     }
 
+    private func fanSpeeds(_ number: String, unit: String) -> some View {
+        (Text(number).font(Theme.number(13, weight: .semibold)).foregroundStyle(Color.primary)
+            + Text(unit).font(.system(size: 11)).foregroundStyle(Theme.muted))
+            .lineLimit(1).fixedSize()
+    }
+
     @ViewBuilder private var sensorsCard: some View {
         let fans = s.fans
         HStack {
@@ -383,9 +410,12 @@ struct OverviewSection: View {
             if settings.sensorCardFans, let rpm = FanSummary.rpm(fans) {
                 HStack(spacing: 4) {
                     SpinningFan(rpm: rpm).foregroundStyle(Theme.fan)
-                    (Text(FanSummary.speeds(fans)).font(Theme.number(13, weight: .semibold)).foregroundStyle(Color.primary)
-                        + Text(" rpm").font(.system(size: 11)).foregroundStyle(Theme.muted))
-                        .lineLimit(1)
+                    // Each fan when they fit whole, else their average (`FanSummary.rpm`, as the
+                    // menu bar shows it); never a speed cut short ("7,4…").
+                    ViewThatFits(in: .horizontal) {
+                        fanSpeeds(FanSummary.speeds(fans), unit: " rpm")
+                        fanSpeeds(NumberParts.split(Format.rpm(rpm)).number, unit: " rpm average")
+                    }
                 }
             }
         }
@@ -422,7 +452,7 @@ struct OverviewSection: View {
         HStack {
             title(.ai)
             Spacer(minLength: 8)
-            if settings.aiUsage.cardPill, let pill = model?.pill { AIPill(text: pill.text, color: pill.color) }
+            if settings.aiUsage.cardPill, let pill = model?.pill { AIPill(text: pill.text, tint: pill.tint) }
         }
         if let model { AICardBody(model: model) }
     }
@@ -579,4 +609,11 @@ struct OverviewCardFrame<Content: View>: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { panels?.openNow(part) }
     }
+}
+
+/// Where a card's title row sits, so a card still waiting for its readings draws the title alone
+/// in the same place (`OverviewSection.card`).
+private struct CardTitleAnchor: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
 }

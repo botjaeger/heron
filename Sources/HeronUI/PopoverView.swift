@@ -30,14 +30,12 @@ public struct PopoverView: View {
     /// Optional: views without AI accounts (tests, older hosts) draw without it.
     @Environment(AIUsageService.self) private var ai: AIUsageService?
 
-    /// heron-snap: the AI panel on a given view, its first resets list open (and confirming).
-    var aiDebug: AIPanelDebug?
     /// Drawn for "Copy picture": the panel without its Copy picture button.
     var picture = false
     @Environment(\.colorScheme) private var scheme
 
-    public init(kind: PopoverKind, snapshot: Snapshot? = nil, debugMenu: OverviewPart? = nil, aiDebug: AIPanelDebug? = nil) {
-        self.kind = kind; self.snapshot = snapshot; self.debugMenu = debugMenu; self.aiDebug = aiDebug
+    public init(kind: PopoverKind, snapshot: Snapshot? = nil, debugMenu: OverviewPart? = nil) {
+        self.kind = kind; self.snapshot = snapshot; self.debugMenu = debugMenu
     }
 
     private var s: Snapshot { snapshot ?? monitor.snapshot }
@@ -97,7 +95,14 @@ public struct PopoverView: View {
         }
     }
 
-    @ViewBuilder private var sections: some View {
+    /// A panel opened before Heron has its readings (`Snapshot.awaitingReadings`) keeps its size
+    /// under its header and draws no numbers; the overview cards do this per card, AI usage has
+    /// readings of its own.
+    private var sections: some View {
+        sectionContent.opacity(s.awaitingReadings && kind != .overview && kind != .ai ? 0 : 1)
+    }
+
+    @ViewBuilder private var sectionContent: some View {
         switch kind {
         case .overview: OverviewSection(snapshot: s, debugMenu: debugMenu)
         case .cpu: CPUSection(snapshot: s)
@@ -107,7 +112,7 @@ public struct PopoverView: View {
         case .network: NetworkSection(snapshot: s)
         case .sensors: SensorsSection(snapshot: s)
         case .battery: BatterySection(snapshot: s)
-        case .ai: AIPanelView(openResets: aiDebug?.openResets ?? false, confirmReset: aiDebug?.confirmReset ?? false)
+        case .ai: AIPanelView()
         }
     }
 

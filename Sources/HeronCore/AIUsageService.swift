@@ -22,7 +22,7 @@ public final class AIUsageService {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var failures: [String: Int] = [:]
     @ObservationIgnored private(set) var waitUntil: [String: Date] = [:]
-    @ObservationIgnored private var lastHourly: [String: Date] = [:]
+    @ObservationIgnored private(set) var lastHourly: [String: Date] = [:]
     @ObservationIgnored private var hourlyCache: [String: (plan: String?, extras: [AIMetric], grants: [AIResetGrant])] = [:]
     /// One refresh per account at a time: a second caller waits for the one in flight.
     @ObservationIgnored private var inFlight: [String: Task<Void, Never>] = [:]
@@ -69,6 +69,7 @@ public final class AIUsageService {
         tokens.delete(id); unsaved[id] = nil
         accounts.removeAll { $0.id == id }; readings[id] = nil
         failures[id] = nil; waitUntil[id] = nil; lastHourly[id] = nil; hourlyCache[id] = nil
+        claimIDs = claimIDs.filter { !$0.key.hasPrefix(id + "/") }
         saveAccounts(); saveReadings()
     }
 
@@ -159,12 +160,13 @@ public final class AIUsageService {
             await withTaskGroup(of: Void.self) { g in
                 for a in accounts { g.addTask { await self.refresh(a, force: force) } }
             }
-            saveReadings()
             onUpdate?()
         }
     }
 
     public func refresh(_ account: AIAccount, force: Bool) async {
+        // Removed before it began (a claim's refresh, a Refresh button on a closing sheet): read nothing.
+        guard exists(account.id) else { return }
         let now = Date()
         if let until = waitUntil[account.id], until > now {
             // ⌘R skips Heron's own backoff, never a provider's Retry-After.
@@ -198,7 +200,8 @@ public final class AIUsageService {
             if case .rateLimited(let until) = problem {
                 waitUntil[account.id] = until
             }
-            // A borrowed sign-in is renewed by its CLI, not by Heron: retry on the normal backoff.
+            // Heron's own sign-in refused even after a renewal: an hour (it needs signing in again).
+            // A borrowed sign-in is renewed by its CLI, not by Heron: it retries on the normal backoff.
             else if problem == .signInExpired && account.signIn == .oauth {
                 waitUntil[account.id] = now.addingTimeInterval(Self.hourly)
             } else {
@@ -209,6 +212,20 @@ public final class AIUsageService {
         }
         reading.metrics = (accounts.first { $0.id == account.id } ?? account).ordered(reading.metrics)
         readings[account.id] = reading
+        // Saved with every refresh, not only the timer's: `heron usage --json` reads what is saved,
+        // and a reset spent here (its refresh) must not still show as on hand there.
+        saveReadings()
+    }
+
+    /// Whether a limit refilled before its window ended: its use fell by 5 points or more while the
+    /// last reading's reset time is still ahead. Only a spent limit reset does that.
+    static func refilledEarly(old: [AIMetric], new: [AIMetric], now: Date) -> Bool {
+        new.contains { m in
+            guard case .limit(let used, _, .percent, _, _) = m.value,
+                let before = old.first(where: { $0.key == m.key }), case .limit(let was, _, .percent, let resetsAt?, _) = before.value
+            else { return false }
+            return resetsAt > now.addingTimeInterval(60) && was - used >= 5
+        }
     }
 
     /// One account's read, with renewal and the hourly secondary reads.
@@ -237,7 +254,15 @@ public final class AIUsageService {
                 return AIReading(problem: .noSubscription("No OpenCode Go subscription on this account."))
             }
             guard status == 200 else { return AIReading(problem: .http(status)) }
-            if hourlyDue { await readHourly(a, t, usage: body); lastHourly[a.id] = now }
+            // A reset spent outside Heron (Claude Code, the website) refills a limit before its
+            // window ends: read the resets again now, not up to an hour later.
+            let fresh = a.provider == .claude ? ClaudeAPI.map(usage: body, plan: nil) : a.provider == .codex ? CodexAPI.map(usage: body, now: now) : []
+            let spent = Self.refilledEarly(old: readings[a.id]?.metrics ?? [], new: fresh, now: now)
+            if hourlyDue || spent {
+                await readHourly(a, t, usage: body)
+                // Removed during the hourly read: leave nothing behind for it.
+                if exists(a.id) { lastHourly[a.id] = now }
+            }
             let cache = hourlyCache[a.id]
             var metrics: [AIMetric]
             var grants = cache?.grants ?? []
@@ -262,28 +287,38 @@ public final class AIUsageService {
     }
 
     private func readHourly(_ a: AIAccount, _ t: AITokens, usage: [String: Any]) async {
-        var plan = hourlyCache[a.id]?.plan, extras: [AIMetric] = [], grants: [AIResetGrant] = []
+        // A secondary read that fails keeps what the last one gave (offline for a moment, a 5xx):
+        // it never empties the resets or token rows until the next hourly read.
+        let old = hourlyCache[a.id]
+        var plan = old?.plan, extras: [AIMetric] = [], grants: [AIResetGrant] = []
+        func keep(_ key: String) { extras += old?.extras.filter { $0.key == key } ?? [] }
         switch a.provider {
         case .claude:
             if let (s, p, _) = try? await get(ClaudeAPI.request(ClaudeAPI.profileURL, token: t.access, claudeCode: false)), s == 200 {
                 plan = ClaudeAPI.plan(profile: p)
                 // The account as it is now: `a` was captured before the wait and may be renamed or reordered since.
-                if let org = (p["organization"] as? [String: Any])?["uuid"] as? String, var b = accounts.first(where: { $0.id == a.id }), b.extras["org_uuid"] != org {
+                if let org = ClaudeAPI.orgUUID((p["organization"] as? [String: Any])?["uuid"]), var b = accounts.first(where: { $0.id == a.id }), b.extras["org_uuid"] != org {
                     b.extras["org_uuid"] = org; update(b)
                 }
             }
             if let (s, g, _) = try? await get(ClaudeAPI.request(ClaudeAPI.grantsURL, token: t.access)), s == 200 {
                 let (m, list) = ClaudeAPI.grants(g); if let m { extras.append(m) }; grants = list
+            } else {
+                keep("resets"); grants = old?.grants ?? []
             }
         case .codex:
             plan = CodexAPI.plan(usage["plan_type"] as? String)
             if let (s, list, _) = try? await get(CodexAPI.request(CodexAPI.creditsURL, token: t.access, account: a.extras["chatgpt_account_id"], resets: true)), s == 200 {
                 let (m, g) = CodexAPI.resets(usage: usage, list: list); if let m { extras.append(m) }; grants = g
+            } else {
+                keep("resets"); grants = old?.grants ?? []
             }
             if let (s, body, _) = try? await get(CodexAPI.request(CodexAPI.analyticsURL(), token: t.access, account: a.extras["chatgpt_account_id"])), s == 200,
                 let days = CodexAPI.dailyTokens(body)
             {
                 extras += CodexAPI.tokenRows(days)
+            } else {
+                keep("last30")
             }
         case .opencode:
             if a.signIn == .oauth, let (s, b, _) = try? await get(OpenCodeAPI.request(OpenCodeAPI.statusURL, token: t.access, org: a.extras["org_id"], orgHeader: "x-org-id")),
@@ -375,13 +410,16 @@ public final class AIUsageService {
 
     // MARK: Limit resets
 
-    public enum ClaimOutcome: Equatable { case done, nothingToReset, noCredit, unavailable(String), notPermitted, failed(String) }
+    public enum ClaimOutcome: Equatable, Sendable { case done, nothingToReset, noCredit, unavailable(String), notPermitted, failed(String) }
 
-    @ObservationIgnored private var claimIDs: [String: String] = [:]
+    /// "accountID/grantID" → the request id a retry reuses until the claim settles.
+    @ObservationIgnored private(set) var claimIDs: [String: String] = [:]
 
     /// Spends one reset (asks first in the UI). Retries reuse the same request id until it settles.
     public func claim(_ account: AIAccount, _ grant: AIResetGrant) async -> ClaimOutcome {
         guard let t = await usableTokens(account) else { return .failed("Sign-in expired") }
+        // Removed during the renewal: spend nothing, remember no request id.
+        guard exists(account.id) else { return .failed("Account removed") }
         let key = "\(account.id)/\(grant.id)"
         let requestID = claimIDs[key] ?? UUID().uuidString
         claimIDs[key] = requestID
@@ -389,7 +427,8 @@ public final class AIUsageService {
         do {
             switch account.provider {
             case .claude:
-                guard let org = account.extras["org_uuid"] else { return .failed("Organization unknown yet; try after the next refresh") }
+                // Only a UUID goes into the URL path (a sign-in saved before the check may hold anything).
+                guard let org = ClaudeAPI.orgUUID(account.extras["org_uuid"]) else { return .failed("Organization unknown yet; try after the next refresh") }
                 let (s, b, _) = try await get(ClaudeAPI.claimRequest(orgUUID: org, grantID: grant.id, requestID: requestID, token: t.access))
                 if s == 401 || s == 403 { outcome = .notPermitted; break }
                 let result = (b["result"] as? String) == "unavailable" ? b["reason"] as? String : b["result"] as? String
@@ -415,6 +454,8 @@ public final class AIUsageService {
             case .opencode: outcome = .noCredit
             }
         } catch { return .failed("Not reachable") }
+        // Removed while the claim was out: `remove` already forgot its request ids; keep nothing.
+        guard exists(account.id) else { return outcome }
         if case .failed = outcome {} else { claimIDs[key] = nil }
         if outcome == .done || outcome == .nothingToReset { lastHourly[account.id] = nil; await refresh(account, force: true) }
         return outcome

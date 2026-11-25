@@ -9,7 +9,11 @@ import Observation
 @MainActor
 @Observable
 public final class Monitor {
-    public private(set) var snapshot = Snapshot()
+    public private(set) var snapshot: Snapshot = {
+        var s = Snapshot()
+        s.awaitingReadings = true
+        return s
+    }()
     public private(set) var history = MetricHistory()
     public private(set) var hasSMC = false
     /// Sensors without a known name, counted once at start (they are only read while shown).
@@ -37,6 +41,7 @@ public final class Monitor {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var tickCount = 0
     @ObservationIgnored private var busy = false
+    @ObservationIgnored private var appliedCount = 0
     @ObservationIgnored private let samplers = Samplers()
 
     public init() {}
@@ -104,12 +109,20 @@ public final class Monitor {
             c.performanceMHz = c.performanceMHz ?? old.performanceMHz
             s.clocks = c
         }
+        appliedCount += 1
+        // The first sample has no CPU, GPU or rates yet (they are differences between two).
+        s.awaitingReadings = appliedCount < 2
         let wasSlow = effectiveInterval
         snapshot = s
-        history.record(s)
+        // A history point with no CPU reading would draw as 0%.
+        if !s.awaitingReadings { history.record(s) }
         busy = false
         onSample?(s)
         if effectiveInterval != wasSlow { restart() }
+        // The second sample half a second after the first, not a whole (up to 5 s) interval later.
+        if s.awaitingReadings, interval > 0.5 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.tick() }
+        }
     }
 }
 

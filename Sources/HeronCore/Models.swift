@@ -199,6 +199,10 @@ public struct Snapshot: Sendable, Equatable {
     public var clocks: ClockReading?
     public var topCPU: [ProcessUsage] = []
     public var topMemory: [ProcessUsage] = []
+    /// True until Heron has its first full set of readings: CPU, GPU and the rates need two
+    /// samples, so a reading missing now is one still on its way, not one this Mac lacks. Every
+    /// surface keeps its place and draws no number meanwhile, never an invented "0" or "–".
+    public var awaitingReadings = false
     public init() {}
 
     /// The hottest identified sensor, used for the menu bar temperature item.

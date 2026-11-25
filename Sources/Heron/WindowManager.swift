@@ -11,12 +11,29 @@ final class WindowManager: NSObject, NSWindowDelegate {
     private let services: AppServices
     private let ai: AIUsageService
     private var windows: [String: NSWindow] = [:]
+    /// Privacy Mode: Settings lists account e-mail addresses, so every window Heron opens stays out
+    /// of screenshots, recordings and shared screens, as the popover and its panels do
+    /// (`StatusBarController.privacy`).
+    var privacy = false {
+        didSet { if privacy != oldValue { for window in windows.values { window.setPrivate(privacy) } } }
+    }
 
     init(monitor: Monitor, settings: AppSettings, services: AppServices, ai: AIUsageService) {
         self.monitor = monitor
         self.settings = settings
         self.services = services
         self.ai = ai
+        super.init()
+        // A sheet is a window of its own and does not take its parent's sharing type: the Add
+        // account sheet on Settings showed in recordings with Privacy Mode on (smoke, 2026-11-26).
+        // Every Heron window's sheet follows its parent, the popover's panels' too.
+        NotificationCenter.default.addObserver(forName: NSWindow.willBeginSheetNotification, object: nil, queue: .main) { note in
+            let parent = note.object as? NSWindow
+            MainActor.assumeIsolated {
+                // The sheet is attached right after this notification.
+                DispatchQueue.main.async { if let parent { parent.setPrivate(parent.sharingType == .none) } }
+            }
+        }
     }
 
     func showSettings(_ route: SettingsRoute = SettingsRoute(.general)) {
@@ -43,7 +60,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
         _ id: String, title: String, sidebar: Bool = false, untitled: Bool = false,
         @ViewBuilder content: () -> V
     ) {
-        if let existing = windows[id], existing.isVisible {
+        // Any window still in `windows` is open (closing removes it), even one not visible: Hide
+        // Heron (⌘H) orders windows out, and a second copy made then stacked on the first.
+        if let existing = windows[id] {
+            if NSApp.isHidden { NSApp.unhide(nil) }
             NSApp.activate(ignoringOtherApps: true)
             existing.makeKeyAndOrderFront(nil)
             return
@@ -64,6 +84,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
             window.setContentSize(SettingsView.size)
         }
         window.isReleasedWhenClosed = false
+        window.setPrivate(privacy)
         window.delegate = self
         window.center()
         windows[id] = window
@@ -81,5 +102,14 @@ final class WindowManager: NSObject, NSWindowDelegate {
         // its previews on every sample. Every open builds a fresh window, so let this one go.
         windows[id] = nil
         DispatchQueue.main.async { window.contentViewController = nil }
+    }
+}
+
+extension NSWindow {
+    /// Privacy Mode for this window and the sheet on it (a sheet is a window of its own):
+    /// `sharingType` .none keeps them out of screenshots, recordings and shared screens.
+    func setPrivate(_ on: Bool) {
+        let type: NSWindow.SharingType = on ? .none : .readOnly
+        for window in [self, attachedSheet].compactMap({ $0 }) where window.sharingType != type { window.sharingType = type }
     }
 }

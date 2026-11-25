@@ -109,11 +109,16 @@ run_snap() {
     print -n -- "$count PNGs in $out "
 }
 
-# The website (site/) has no build step: every local file it links to must exist.
+# The website (site/) has no build step: every local file it links to must exist, and every
+# in-page link (#overview) must name an id on the page.
 site_links() {
     local missing=0 ref
     for ref in $(grep -oE '(src|href)="[^"]+"' site/index.html | sed -E 's/^(src|href)="//; s/"$//'); do
-        [[ $ref == http* || $ref == \#* || $ref == mailto:* ]] && continue
+        [[ $ref == http* || $ref == mailto:* ]] && continue
+        if [[ $ref == \#* ]]; then
+            grep -qF -- "id=\"${ref#\#}\"" site/index.html || { print -u2 -- "\nsite/index.html links to a missing anchor: $ref"; missing=1; }
+            continue
+        fi
         [[ -e site/$ref ]] || { print -u2 -- "\nsite/index.html links to a missing file: $ref"; missing=1; }
     done
     return $missing

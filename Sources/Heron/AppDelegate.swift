@@ -64,8 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func runSmokeTestIfRequested() {
         guard let value = ProcessInfo.processInfo.environment["HERON_SMOKE_SECONDS"], let seconds = Double(value) else { return }
         // Settings opens on AI Usage with the Add account sheet: its sheet must attach with content
-        // (an empty one once locked the window).
+        // (an empty one once locked the window). It opens with Privacy Mode on, so the sheet begins
+        // on a private window and must follow it (the next sample puts the user's setting back).
+        windows.privacy = true
         windows.showSettings(.aiUsageAdd)
+        smokeCheckSheetFollowsSettings(tries: 100)
         windows.showChangelog()
         windows.showAbout()
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds / 2) { [self] in statusBar.debugOpenFirstPopover() }
@@ -84,13 +87,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         sheet.contentView.map { "\(Int($0.fittingSize.width)) x \(Int($0.fittingSize.height))" } ?? "none")
                 }
             }
+            // Privacy Mode keeps every open window out of recordings, Settings and its sheet
+            // included; the next sample puts the user's own setting back (`applySettings`). The
+            // status item's windows ignore `sharingType` (`StatusBarController.applyPrivacy`).
+            windows.privacy = true
+            statusBar.privacy = true
+            var covered = 0
+            for window in NSApp.windows where window.isVisible && !window.className.contains("StatusBarWindow") {
+                if window.sharingType == .none {
+                    covered += 1
+                } else {
+                    print("SMOKE FAIL: Privacy Mode leaves a window shareable:", window.title.isEmpty ? "(popover)" : window.title, window.className)
+                }
+            }
+            print("SMOKE privacy:", covered, "windows hidden from recordings with Privacy Mode on")
+            windows.privacy = settings.aiUsage.privacyMode
+            statusBar.privacy = settings.aiUsage.privacyMode
             let s = monitor.snapshot
+            if s.awaitingReadings { print("SMOKE FAIL: still waiting for the first readings after \(seconds) s") }
             print(
                 "SMOKE snapshot cpu:", s.cpu.map { Format.percent($0.total) } ?? "nil", "mem:", s.memory.map { Format.percent($0.usedFraction) } ?? "nil",
                 "sensors:", s.sensors.count, "fans:", s.fans.count, "power:", s.power?.package.map(Format.watts) ?? "nil",
                 "history cpu samples:", monitor.history[.cpu].count, "updater:", updater.isAvailable)
             // Then the popover's clicks and keys, with posted events.
             statusBar.debugInteract(outside: NSApp.windows.first { $0.title == "About Heron" }) { exit(0) }
+        }
+    }
+
+    /// Smoke: once the Add account sheet is on Settings, it has Settings' sharing type.
+    private func smokeCheckSheetFollowsSettings(tries: Int) {
+        let parent = NSApp.windows.first { $0.title == "Heron Settings" }
+        guard let parent, let sheet = parent.attachedSheet else {
+            if tries > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [self] in smokeCheckSheetFollowsSettings(tries: tries - 1) }
+            } else {
+                print("SMOKE FAIL: no sheet on Settings to check Privacy Mode on")
+            }
+            return
+        }
+        // The sheet takes its parent's setting right after it attaches.
+        DispatchQueue.main.async {
+            if parent.sharingType != .none {
+                print("SMOKE privacy sheet: not exercised, a sample put the setting back first")
+            } else if sheet.sharingType != .none {
+                print("SMOKE FAIL: the Add account sheet shows in recordings while Settings is hidden")
+            } else {
+                print("SMOKE privacy sheet: the Add account sheet follows Settings")
+            }
         }
     }
 
@@ -119,8 +162,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .light: NSAppearance(named: .aqua)
             case .dark: NSAppearance(named: .darkAqua)
             }
-        if NSApp.appearance != appearance { NSApp.appearance = appearance }
+        // Compared by name: this runs every sample and setting it redraws every window, and AppKit
+        // does not promise one instance per named appearance.
+        if NSApp.appearance?.name != appearance?.name { NSApp.appearance = appearance }
         statusBar.privacy = settings.aiUsage.privacyMode
+        windows.privacy = settings.aiUsage.privacyMode
         hotKey.set(settings.aiUsage.shortcut)
     }
 

@@ -374,7 +374,7 @@ struct AIUsagePane: View {
         @Bindable var settings = settings
         let command = Self.command(executable: Self.executable)
         return SettingsGroup("Privacy and tools") {
-            SettingsRow(title: "Privacy Mode", subtitle: "Keeps the menu bar item, the popover and its panels out of screen recordings and shared screens", first: true) {
+            SettingsRow(title: "Privacy Mode", subtitle: "Keeps the popover and every Heron window, Settings too, out of screen recordings and sharing", first: true) {
                 SettingsSwitch(title: "Privacy Mode", isOn: $settings.aiUsage.privacyMode)
             }
             SettingsRow(title: "Global shortcut", subtitle: "Opens the AI usage panel from any app") {
@@ -495,6 +495,7 @@ public struct AIAccountSheet: View {
     var flow: AISignInFlow
     var close: () -> Void
     @Environment(AIUsageService.self) private var ai
+    @Environment(AppSettings.self) private var settings
     @State private var name = ""
     @State private var confirmRemove = false
     @State private var signingIn = false
@@ -616,6 +617,7 @@ public struct AIAccountSheet: View {
         }.padding(.top, 14)
             .confirmationDialog("Remove \(account.label)?", isPresented: $confirmRemove) {
                 Button("Remove Account", role: .destructive) {
+                    settings.aiUsage = settings.aiUsage.forgetting(account: account.id)
                     ai.remove(account.id); close()
                 }
                 Button("Cancel", role: .cancel) {}

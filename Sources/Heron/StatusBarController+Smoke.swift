@@ -86,8 +86,28 @@ extension StatusBarController {
             print("SMOKE after Esc 3: popover shown \(popover?.isShown == true)")
             debugOpenFirstPopover()
         }
+        // The AI panel's Limit resets opens beside it like a history. Only an account that holds
+        // resets has the row; the smoke run never adds accounts (it runs on the real defaults).
+        let resetsAccount = ai.accounts.first { !(ai.readings[$0.id]?.grants.isEmpty ?? true) }
+        let resets = resetsAccount.map { HistoryItem(part: .ai, source: .aiResets(account: $0.id), title: "Limit resets", unit: .count, color: .primary) }
         steps.append { [self] in
             print("SMOKE reopened: popover shown \(popover?.isShown == true)")
+            if resets != nil { panels.openNow(.ai) } else { print("SMOKE resets: no account holds limit resets here, not exercised") }
+        }
+        if let resets {
+            steps.append { [self] in panels.showHistory(resets) }
+            steps.append { [self] in
+                let beside = historyPanel.isVisible && !historyPanel.frame.intersects(panel.frame) && historyPanel.frame.height > 100
+                print("SMOKE resets beside the AI panel: \(beside) (\(Int(historyPanel.frame.width))x\(Int(historyPanel.frame.height)))")
+                if !beside { print("SMOKE FAIL: the limit resets did not open beside the AI panel") }
+                key(53)
+            }
+            steps.append { [self] in
+                print("SMOKE resets after Esc: visible \(historyPanel.isVisible) panel \(panels.open?.rawValue ?? "nil")")
+                if historyPanel.isVisible { print("SMOKE FAIL: Esc left the limit resets open") }
+            }
+        }
+        steps.append {
             if let outside { click(outside, at: NSPoint(x: outside.frame.width / 2, y: outside.frame.height / 2)) }
         }
         steps.append { [self] in

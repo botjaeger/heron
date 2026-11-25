@@ -7,8 +7,53 @@ import SwiftUI
 // confirmation, the empty and problem states, and Settings › Overview with AI usage selected, from
 // preview accounts (no network, no Keychain). Each render has its own settings, removed at the end.
 
+/// The resets board's accounts: Claude (Weekly 86% used, refilling in 2 d 6 h; one Weekly reset
+/// usable, two Fable resets for later) and ChatGPT (both limits out; three credits, two running out
+/// this week). `spent`: the Weekly reset used (its limit full) and an account with none left.
+@MainActor
+private func aiResetsService(_ defaults: UserDefaults, spent: Bool = false) -> AIUsageService {
+    let now = Date(), day = 86400.0, week = AIPeriod.week
+    func limit(_ key: String, _ title: String, used: Double, period: Double, resetsIn: Double) -> AIMetric {
+        AIMetric(key: key, title: title, value: .limit(used: used, limit: 100, unit: .percent, resetsAt: now.addingTimeInterval(resetsIn), period: period))
+    }
+    func grant(_ id: String, _ kind: AIResetKind, in days: Double, usable: Bool, count: Int = 1, detail: String) -> AIResetGrant {
+        AIResetGrant(id: id, expiresAt: now.addingTimeInterval(days * day), usableNow: usable, detail: detail, kind: kind, count: count)
+    }
+    let claude = AIAccount(id: "claude-r", provider: .claude, label: "Personal", signIn: .oauth)
+    let codex = AIAccount(id: "codex-r", provider: .codex, label: "Work", signIn: .oauth)
+    let none = AIAccount(id: "none-r", provider: .claude, label: "Team", signIn: .oauth)
+    let fable = grant("f", .fable, in: 104, usable: false, count: 2, detail: "Refills your Fable limit now. This can't be undone.")
+    var claudeGrants = [fable]
+    if !spent { claudeGrants.append(grant("w", .weekly, in: 15.43, usable: true, detail: "Refills your weekly limit now. This can't be undone.")) }
+    let full = "Refills your 5-hour and weekly limits now. This can't be undone."
+    let readings: [String: AIReading] = [
+        claude.id: AIReading(
+            plan: "Ultra",
+            metrics: [
+                limit("weekly", "Weekly", used: spent ? 0 : 86, period: week, resetsIn: 2.25 * day),
+                limit("fable", "Fable", used: 0, period: week, resetsIn: 2.25 * day),
+            ], grants: claudeGrants, fetchedAt: now),
+        codex.id: AIReading(
+            plan: "Plus",
+            metrics: [
+                limit("session", "5 hours", used: 100, period: AIPeriod.session, resetsIn: 5 * 3600),
+                limit("weekly", "Weekly", used: 100, period: week, resetsIn: week),
+            ],
+            grants: [
+                grant("a", .full, in: 5.33, usable: true, detail: full), grant("b", .full, in: 6.43, usable: true, detail: full),
+                grant("c", .full, in: 17.43, usable: true, detail: full),
+            ],
+            fetchedAt: now),
+        none.id: AIReading(plan: "Team", metrics: [limit("weekly", "Weekly", used: 20, period: week, resetsIn: 3 * day)], fetchedAt: now),
+    ]
+    let service = AIUsageService(defaults: defaults, tokens: MemoryTokenStore())
+    service.setPreview(accounts: [claude, codex, none], readings: readings)
+    return service
+}
+
 /// Accounts like the design's panel: two Claude accounts (initials on the marks), ChatGPT with
-/// tokens and resets, OpenCode with a reading 12 minutes old.
+/// tokens and resets, OpenCode with a reading 12 minutes old (its Weekly "Resets in 23h 50m", the
+/// widest reset text: the card's reset column widens for it).
 @MainActor
 private func aiPanelService(_ defaults: UserDefaults, problem: Bool = false) -> AIUsageService {
     let now = Date()
@@ -65,7 +110,7 @@ private func aiPanelService(_ defaults: UserDefaults, problem: Bool = false) -> 
             plan: "Go Plus",
             metrics: [
                 limit("session", "5 hours", used: 12, period: session, resetsIn: 3 * 3600),
-                limit("weekly", "Weekly", used: 22, period: week, resetsIn: 9 * 3600),
+                limit("weekly", "Weekly", used: 22, period: week, resetsIn: 23 * 3600 + 50 * 60),
                 limit("monthly", "Monthly", used: 79, period: AIPeriod.month, resetsIn: 11 * 86400),
             ], fetchedAt: now.addingTimeInterval(-12 * 60), problem: problem ? .signInExpired : nil),
     ]
@@ -111,8 +156,8 @@ func renderAIPanel() {
     render(PopoverView(kind: .overview).environment(settings { $0.setOverviewOrder([.cpu, .ai]) }).environment(none), "ai-popover-no-accounts")
 
     // The panel.
-    func panel(_ name: String, ai: AIUsageService = service, debug: AIPanelDebug? = nil, _ configure: (AppSettings) -> Void = { _ in }) {
-        render(PopoverView(kind: .ai, aiDebug: debug).environment(settings(configure)).environment(ai), "ai-panel-\(name)")
+    func panel(_ name: String, ai: AIUsageService = service, _ configure: (AppSettings) -> Void = { _ in }) {
+        render(PopoverView(kind: .ai).environment(settings(configure)).environment(ai), "ai-panel-\(name)")
     }
     panel("all")
     renderPicture(.ai, settings: settings(), ai: service, "picture-ai")
@@ -121,8 +166,27 @@ func renderAIPanel() {
         s.aiUsage.display = .used; s.aiUsage.paceMarks = true; s.aiUsage.resetFormat = .clock; s.aiUsage.providersAs = .name
     }
     panel("all-problem", ai: troubled)
-    panel("all-resets-confirm", debug: AIPanelDebug(openResets: true, confirmReset: true))
-    panel("all-resets-list", debug: AIPanelDebug(openResets: true))
+    // The resets beside the panel (the mockup's "Limit resets" board): Claude with a Weekly reset
+    // to use and two Fable resets for March; ChatGPT with two credits running out this week.
+    let resets = aiResetsService(scratch("resets"))
+    func page(_ name: String, _ id: String, confirming: AIResetKind? = nil, outcome: String? = nil, hover: Double? = nil, ai: AIUsageService = resets) {
+        render(
+            AIResetsPage(accountID: id, confirming: confirming, outcome: outcome, hover: hover.map { Date().addingTimeInterval($0 * 86400) })
+                .padding(14).frame(width: HistoryPage.width)
+                .environment(settings()).environment(ai),
+            "ai-resets-\(name)")
+    }
+    page("claude", "claude-r")
+    // Hovering the strip (the "hover a day" board): a day Weekly is out, the day it refills, the
+    // day the Weekly reset runs out (the pointer a little off the diamond snaps to it).
+    page("claude-hover-out", "claude-r", hover: 1.5)
+    page("claude-hover-refill", "claude-r", hover: 2.25)
+    page("claude-hover-expiry", "claude-r", hover: 15.5)
+    page("claude-confirm", "claude-r", confirming: .weekly)
+    page("chatgpt-soon", "codex-r")
+    let spent = aiResetsService(scratch("spent"), spent: true)
+    page("claude-done", "claude-r", outcome: "Done: the limit is refilled.", ai: spent)
+    page("none", "none-r", ai: spent)
     panel("no-accounts", ai: none)
     // No reported limits: an account that has not been read yet.
     let waiting = AIUsageService(defaults: scratch("waiting"), tokens: MemoryTokenStore())

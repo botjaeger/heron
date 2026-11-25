@@ -253,9 +253,9 @@ struct MenuBarPane: View {
                     Spacer(minLength: 8)
                     Text(shown ? "In the menu bar" : "Hidden")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(shown ? Theme.memory : Theme.muted)
+                        .foregroundStyle(shown ? Theme.Tint.memory.text : Theme.muted)
                         .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(shown ? Theme.memory.opacity(0.14) : Theme.settingsSelection, in: Capsule())
+                        .background(shown ? Theme.Tint.memory.fill : Theme.settingsSelection, in: Capsule())
                         .fixedSize()
                 }
                 if kind == .ai {

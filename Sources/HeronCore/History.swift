@@ -107,6 +107,9 @@ public struct ItemKey: Hashable, Sendable {
 public enum HistorySource: Hashable, Sendable {
     case metric(Metric)
     case item(ItemKey)
+    /// An AI account's limit resets: opens beside the panel like a history, drawn from the
+    /// account's reading (`AIResetPlan`), so it has no recorded values.
+    case aiResets(account: String)
 }
 
 /// One number's history at falling resolution: every second for 10 minutes, then 10-second
@@ -265,6 +268,7 @@ public struct MetricHistory: Sendable, Equatable {
         switch source {
         case .metric(let m): return series(m, seconds: seconds, points: points)
         case .item(let key): return items[key]?.series(seconds: max(1, seconds), points: points) ?? []
+        case .aiResets: return []
         }
     }
 
@@ -274,6 +278,7 @@ public struct MetricHistory: Sendable, Equatable {
         switch source {
         case .metric(let m): return tiered[m]?.seconds ?? self[m].count
         case .item(let key): return items[key]?.seconds ?? 0
+        case .aiResets: return 0
         }
     }
 
@@ -282,6 +287,7 @@ public struct MetricHistory: Sendable, Equatable {
         switch source {
         case .metric(let m): return self[m].latest
         case .item(let key): return items[key]?.tiers.first?.ring.latest
+        case .aiResets: return nil
         }
     }
 

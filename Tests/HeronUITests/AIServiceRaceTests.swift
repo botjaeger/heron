@@ -203,7 +203,7 @@ func waitFor(_ seconds: Double = 3, _ condition: () -> Bool) async {
     @Test func theHourlyReadNeverWritesBackAStaleAccount() async {
         StubProtocol.handler = { r, _ in
             r.url?.absoluteString == ClaudeAPI.profileURL
-                ? .init(status: 200, body: ["organization": ["uuid": "org-1"]], delay: 0.3)
+                ? .init(status: 200, body: ["organization": ["uuid": Self.org]], delay: 0.3)
                 : .init(status: 200)
         }
         let store = MemoryTokenStore()
@@ -215,7 +215,7 @@ func waitFor(_ seconds: Double = 3, _ condition: () -> Bool) async {
         s.update(renamed)  // renamed in Settings while the profile is on its way
         await t.value
         #expect(s.accounts.first?.label == "New")
-        #expect(s.accounts.first?.extras["org_uuid"] == "org-1")
+        #expect(s.accounts.first?.extras["org_uuid"] == Self.org)
     }
 
     @Test func tokensTheKeychainRefusedAreUsedForTheNextRenewal() async {
@@ -303,5 +303,106 @@ extension AIServiceRaceTests {
         try? await Task.sleep(nanoseconds: 400_000_000)
         #expect(service.accounts.isEmpty)
         #expect(f.step == .idle)
+    }
+}
+
+/// Classes: data lifecycle on removal (claim ids, the hourly mark); a reading kept vs replaced when
+/// a secondary read fails; a server string in a URL path; readings saved by every refresh.
+@MainActor
+extension AIServiceRaceTests {
+    static let org = "3f2a1c4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b"
+    var grant: AIResetGrant { AIResetGrant(id: "g1", expiresAt: nil, usableNow: true, detail: "") }
+
+    @Test func removingAnAccountForgetsItsClaimIDs() async {
+        StubProtocol.handler = { _, _ in .init(status: 500) }
+        let store = MemoryTokenStore()
+        let (s, base) = make("claim-ids", store: store)
+        var a = base; a.extras["org_uuid"] = Self.org; s.update(a)
+        store.tokens[a.id] = fresh
+        _ = await s.claim(a, grant)  // not confirmed: the id is kept for the retry
+        #expect(s.claimIDs.keys.contains("\(a.id)/g1"))
+        s.remove(a.id)
+        #expect(s.claimIDs.isEmpty)
+    }
+
+    @Test func aClaimForAnAccountRemovedMidwayReadsNothingAfterIt() async {
+        StubProtocol.handler = { r, _ in
+            r.httpMethod == "POST" ? .init(status: 200, body: ["result": "reset"], delay: 0.3) : .init(status: 200)
+        }
+        let (s, base) = make("claim-removed", signIn: .borrowed)
+        var a = base; a.extras["org_uuid"] = Self.org; s.update(a)
+        s.borrowedTokens = { _ in AITokens(access: "cli", refresh: nil, expiresAt: Date().addingTimeInterval(3600)) }
+        let t = Task { await s.claim(a, self.grant) }
+        await waitFor { StubProtocol.seen.count == 1 }
+        s.remove(a.id)
+        _ = await t.value
+        #expect(StubProtocol.seen.count == 1)  // the claim only: no refresh of a removed account
+        #expect(s.readings[a.id] == nil && s.claimIDs.isEmpty)
+    }
+
+    @Test func removedDuringTheHourlyReadLeavesNoMark() async {
+        StubProtocol.handler = { r, _ in .init(status: 200, delay: r.url?.absoluteString == ClaudeAPI.profileURL ? 0.3 : 0) }
+        let store = MemoryTokenStore()
+        let (s, a) = make("hourly-removed", store: store)
+        store.tokens[a.id] = fresh
+        let t = Task { await s.refresh(a, force: true) }
+        await waitFor { StubProtocol.count(ClaudeAPI.profileURL) == 1 }
+        s.remove(a.id)
+        await t.value
+        #expect(s.lastHourly[a.id] == nil)
+    }
+
+    @Test func aFailedResetsReadKeepsTheLastResets() async {
+        let ahead = AIParse.iso.string(from: Date().addingTimeInterval(3 * 86400))
+        var round = 1
+        StubProtocol.handler = { r, _ in
+            switch r.url?.absoluteString {
+            case ClaudeAPI.usageURL?: return .init(status: 200, body: ["seven_day": ["utilization": round == 1 ? 50 : 10, "resets_at": ahead]])
+            case ClaudeAPI.grantsURL?:
+                guard round == 1 else { return .init(status: 503) }
+                return .init(status: 200, body: ["cedar_ember": ["eligible": true, "grants": [["id": "g1", "resets_left": 1, "usable_now": true]]]])
+            default: return .init(status: 200)
+            }
+        }
+        let store = MemoryTokenStore()
+        let (s, a) = make("hourly-kept", store: store)
+        store.tokens[a.id] = fresh
+        await s.refresh(a, force: true)
+        #expect(s.readings[a.id]?.grants.map(\.id) == ["g1"])
+        // The weekly limit refilled early (a reset spent elsewhere): the resets are read again, and that read fails.
+        round = 2
+        await s.refresh(a, force: true)
+        #expect(StubProtocol.count("cedar_ember") == 2)
+        #expect(s.readings[a.id]?.grants.map(\.id) == ["g1"])
+        #expect(s.readings[a.id]?.metrics.contains { $0.key == "resets" } == true)
+    }
+
+    @Test func anOrganizationThatIsNotAUUIDIsNeitherKeptNorSent() async {
+        StubProtocol.handler = { r, _ in
+            r.url?.absoluteString == ClaudeAPI.profileURL ? .init(status: 200, body: ["organization": ["uuid": "../../v1/messages"]]) : .init(status: 200)
+        }
+        let store = MemoryTokenStore()
+        let (s, a) = make("org-path", store: store)
+        store.tokens[a.id] = fresh
+        await s.refresh(a, force: true)
+        #expect(s.accounts.first?.extras["org_uuid"] == nil)
+        var saved = a; saved.extras["org_uuid"] = "../../v1/messages"  // saved by an older version
+        s.update(saved)
+        let asked = StubProtocol.seen.count
+        #expect(await s.claim(saved, grant) == .failed("Organization unknown yet; try after the next refresh"))
+        #expect(StubProtocol.seen.count == asked)
+    }
+
+    @Test func aSingleRefreshIsSavedForTheExport() async {
+        StubProtocol.handler = { _, _ in .init(status: 200, body: ["five_hour": ["utilization": 40]]) }
+        let d = scratchDefaults("refresh-saved")
+        let store = MemoryTokenStore()
+        let s = AIUsageService(defaults: d, tokens: store, session: StubProtocol.session())
+        let a = AIAccount(id: "acct-saved", provider: .claude, label: "Old", signIn: .oauth)
+        s.setPreview(accounts: [a], readings: [:])
+        d.set(try? JSONEncoder().encode([a]), forKey: "aiAccounts")
+        store.tokens[a.id] = fresh
+        await s.refresh(a, force: true)  // a Settings or panel Refresh, or a claim's: not the timer's pass
+        #expect(AIUsageExport.run(defaults: d).status == 0)
     }
 }

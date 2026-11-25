@@ -431,7 +431,7 @@ struct SensorsSection: View {
                 if let hottest = s.hottest, visible.contains(where: { $0.id == hottest.id }) {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("HOTTEST").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(Theme.warning)
+                            Text("HOTTEST").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(Theme.Tint.warning.text)
                             Text(SensorSummary.hottestLabel(hottest)).font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
                         }
                         Spacer(minLength: 8)
@@ -439,7 +439,7 @@ struct SensorsSection: View {
                         BigNumber(number: t.number, unit: t.unit, size: 22, unitSize: 12, color: Warnings.color(celsius: hottest.celsius))
                     }
                     .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(Theme.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Theme.Tint.warning.fill, in: RoundedRectangle(cornerRadius: 8))
                 }
                 VStack(spacing: 0) {
                     ForEach(SensorSummary.hottestFirst(SensorSummary.groups(visible)), id: \.group) { item in

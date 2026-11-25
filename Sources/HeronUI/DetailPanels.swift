@@ -134,6 +134,9 @@ public struct HistoryItem: Hashable, Sendable {
     public init(part: OverviewPart, metric: Metric, title: String, unit: Unit, color: Color) {
         self.init(part: part, source: .metric(metric), title: title, unit: unit, color: color)
     }
+
+    /// An AI account's limit resets (`AIResetsPage`), not a recorded history.
+    var isAIResets: Bool { if case .aiResets = source { return true } else { return false } }
 }
 
 /// A key the overview handles while the popover is key.

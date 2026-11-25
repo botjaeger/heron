@@ -173,4 +173,30 @@ import Testing
         d.set(try JSONEncoder().encode([AIAccount(provider: .claude, label: "x", signIn: .oauth)]), forKey: "aiAccounts")
         #expect(AIUsageExport.run(defaults: d).status == 4)  // an account, but never read
     }
+
+    /// Class: a removed account left behind in settings keyed by its limits' ids. "Remove
+    /// Account" kept "accountID/metricKey" in the menu bar's and the card's chosen lists, so
+    /// Settings › Menu Bar still counted its limits ("Heron forgets this sign-in and its settings").
+    @Test func removingAnAccountForgetsItsChosenLimits() throws {
+        var o = AIUsageSettings()
+        o.menuChosen = ["a/weekly", "b/weekly", "a/session"]
+        o.cardChosen = ["a/monthly", "ab/weekly"]
+        let left = o.forgetting(account: "a")
+        #expect(left.menuChosen == ["b/weekly"])
+        #expect(left.cardChosen == ["ab/weekly"])  // an id that only starts with the same letters stays
+        // Every removal in the UI forgets first.
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Sources")
+        var removals = 0
+        for dir in ["HeronUI", "Heron"] {
+            let folder = sources.appendingPathComponent(dir)
+            for file in try FileManager.default.contentsOfDirectory(atPath: folder.path) where file.hasSuffix(".swift") {
+                let lines = try String(contentsOf: folder.appendingPathComponent(file), encoding: .utf8).components(separatedBy: "\n")
+                for (i, line) in lines.enumerated() where line.contains("ai.remove(") || line.contains("ai?.remove(") {
+                    removals += 1
+                    #expect(lines[max(0, i - 2)...i].contains { $0.contains("forgetting(account:") }, "\(file):\(i + 1) removes an account without forgetting its settings")
+                }
+            }
+        }
+        #expect(removals > 0)
+    }
 }
