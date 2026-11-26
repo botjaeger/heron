@@ -13,9 +13,11 @@
 html, body { margin: 0; }
 html { scroll-padding-top: 96px; }
 img { max-width: 100%; }
-/* A light paper page (navy in dark mode); Heron's own screens (the menu bar item, the overview, the
-   drawings) stay dark, like the app on a desk. System type, as the app uses. */
+/* A light paper page for everyone, whatever the system appearance; Heron's own screens (the menu
+   bar item, the overview, the drawings) stay dark, like the app on a desk. System type, as the app
+   uses. */
 :root {
+  color-scheme: light;
   --bg: #F3F3F1;
   --surface: #FFFFFF;
   --fg: #14163A;
@@ -32,10 +34,6 @@ img { max-width: 100%; }
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bg: #0B0D26; --surface: #15183F; --fg: #F2F4F7; --mute: #A2A7CF; --line: rgba(162, 167, 207, .16); --accent: #FF8A6B; --on-accent: #0B0D26; --ok: #5FD69C; --bar-bg: rgba(21, 24, 63, .78); --shadow: rgba(0, 0, 0, .6); color-scheme: dark; }
-}
-:root[data-theme="dark"] { --bg: #0B0D26; --surface: #15183F; --fg: #F2F4F7; --mute: #A2A7CF; --line: rgba(162, 167, 207, .16); --accent: #FF8A6B; --on-accent: #0B0D26; --ok: #5FD69C; --bar-bg: rgba(21, 24, 63, .78); --shadow: rgba(0, 0, 0, .6); color-scheme: dark; }
 
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--fg); font: 17px/1.55 var(--sans); }

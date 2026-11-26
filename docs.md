@@ -219,7 +219,7 @@ icon and share image in `site/img`. `.github/workflows/pages.yml` publishes it t
 `site/` changes on `main` (Settings › Pages › Source: GitHub Actions; the free plan needs a public
 repo). `scripts/check.sh` checks that every local file and `#anchor` the page links to exists.
 
-- **Light paper, dark screens.** The page is light (navy in dark mode); everything that stands for
+- **Light paper, dark screens.** The page is light for everyone, whatever the system appearance; everything that stands for
   Heron itself (the menu bar item, the overview, the feature drawings, the read/write diagram) sits
   on the app's dark desk. Download is ink on paper, in the bar that stays at the top and in Get Heron.
 - **Try it on the page.** The menu bar item and the overview are drawn in HTML with sample readings
