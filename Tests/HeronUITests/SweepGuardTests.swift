@@ -40,9 +40,7 @@ func sourceFiles(_ target: String) -> [(name: String, text: String)] {
 
     /// The widest run of empty columns between the segment's first and last inked columns, in points.
     func widestInnerGap(_ view: some View) -> CGFloat {
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
-        guard let cg = renderer.cgImage, let data = cg.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return .infinity }
+        guard let cg = MenuBarRenderer.bitmap(view, scale: 2), let data = cg.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return .infinity }
         let bpp = cg.bitsPerPixel / 8
         let inked = (0..<cg.width).map { x in (0..<cg.height).contains { y in bytes[y * cg.bytesPerRow + x * bpp + (bpp - 1)] > 40 } }
         guard let first = inked.firstIndex(of: true), let last = inked.lastIndex(of: true) else { return 0 }

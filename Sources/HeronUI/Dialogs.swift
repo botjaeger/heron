@@ -699,6 +699,18 @@ public enum Changelog {
     /// Newest first. Add an entry here with every release; "What's new" opens after an update.
     public static let entries: [ChangelogEntry] = [
         ChangelogEntry(
+            version: "1.1.1", date: "November 2026",
+            groups: [
+                (
+                    "FIXED",
+                    [
+                        ChangelogItem(
+                            "A blank menu bar item stays blank", "Before the first readings, an item could show an old picture instead of nothing.",
+                            icon: .menuBar, color: Theme.network)
+                    ]
+                )
+            ]),
+        ChangelogEntry(
             version: "1.1.0", date: "November 2026",
             groups: [
                 (

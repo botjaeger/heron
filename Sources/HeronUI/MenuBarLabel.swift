@@ -790,10 +790,32 @@ public enum MenuBarRenderer {
     /// Any view as an image `scale` pixels per point, sized in points; nil when nothing renders.
     /// The one ImageRenderer-to-NSImage conversion (the menu bar, its Settings previews, a copied AI picture).
     static func image<V: View>(_ view: V, scale: CGFloat) -> NSImage? {
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = scale
-        guard let cg = renderer.cgImage else { return nil }
+        guard let cg = bitmap(view, scale: scale) else { return nil }
         return NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width) / scale, height: CGFloat(cg.height) / scale))
+    }
+
+    /// Any view drawn into a cleared bitmap of its own, `scale` pixels per point; nil when it has no
+    /// size. The only offscreen render in the app, `heron-snap` and the tests. Never
+    /// `ImageRenderer.cgImage`: when the content draws nothing (a segment at `.opacity(0)` before the
+    /// readings, `Color.clear`), it hands back the pixels of the previous render of the same size
+    /// (macOS 27.2, 2026-11-26), so a blank menu bar item showed the last item drawn. Guards:
+    /// `RenderTests.aBlankRenderIsBlankAfterADrawnOne`, `.noOtherOffscreenRenders`.
+    public static func bitmap<V: View>(_ view: V, scale: CGFloat) -> CGImage? {
+        let renderer = ImageRenderer(content: view)
+        var image: CGImage?
+        renderer.render(rasterizationScale: scale) { size, draw in
+            let width = Int((size.width * scale).rounded(.up)), height = Int((size.height * scale).rounded(.up))
+            guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+                let context = CGContext(
+                    data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return }
+            context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+            context.scaleBy(x: scale, y: scale)
+            draw(context)
+            image = context.makeImage()
+        }
+        return image
     }
 
     /// One segment as an image, in the ink it was given: Settings › Menu Bar's look tiles, which

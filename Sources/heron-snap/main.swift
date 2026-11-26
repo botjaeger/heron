@@ -20,9 +20,7 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--icon" {
         for size in pixels {
             let s = CGFloat(size)
             // macOS icons leave a margin around the tile (about 10% on each side).
-            let renderer = ImageRenderer(content: HeronMark(size: s * 0.8).frame(width: s, height: s))
-            renderer.scale = 1
-            if let cg = renderer.cgImage { CGImageDestinationAddImage(destination, cg, nil) }
+            if let cg = MenuBarRenderer.bitmap(HeronMark(size: s * 0.8).frame(width: s, height: s), scale: 1) { CGImageDestinationAddImage(destination, cg, nil) }
         }
         print(CGImageDestinationFinalize(destination) ? "wrote \(url.path)" : "failed to write \(url.path)")
     }

@@ -33,9 +33,7 @@ import Testing
     }
 
     func image(_ view: some View) -> (bytes: [UInt8], width: Int, height: Int) {
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
-        guard let cg = renderer.cgImage, let data = cg.dataProvider?.data, let p = CFDataGetBytePtr(data) else { return ([], 0, 0) }
+        guard let cg = MenuBarRenderer.bitmap(view, scale: 2), let data = cg.dataProvider?.data, let p = CFDataGetBytePtr(data) else { return ([], 0, 0) }
         return (Array(UnsafeBufferPointer(start: p, count: CFDataGetLength(data))), cg.width, cg.height)
     }
 

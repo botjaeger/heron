@@ -139,9 +139,7 @@ import Testing
         s.fans = [Fan(id: 0, name: "Fan", rpm: 3_000, minRPM: 0, maxRPM: 6_000)]
         s.sensors = [Sensor(id: "c", name: "CPU 1", group: .cpu, celsius: 60, isKnown: true)]
         let segment = MenuBarSegment(kind: kind, style: style, snapshot: s, history: MetricHistory(), settings: settings)
-        let renderer = ImageRenderer(content: segment)
-        renderer.scale = 2
-        return CGFloat(renderer.cgImage?.width ?? 0) / 2
+        return CGFloat(MenuBarRenderer.bitmap(segment, scale: 2)?.width ?? 0) / 2
     }
 
     /// Each item's own label off drops the tag of every tagged look, and changes no look without one.

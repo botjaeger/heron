@@ -20,9 +20,7 @@ import Testing
     }
 
     func width(_ view: some View) -> CGFloat {
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
-        return CGFloat(renderer.cgImage?.width ?? 0) / 2
+        CGFloat(MenuBarRenderer.bitmap(view, scale: 2)?.width ?? 0) / 2
     }
 
     /// Stores menu items and the two retired switches the way the previous version did.
