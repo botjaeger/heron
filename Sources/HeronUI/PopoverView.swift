@@ -234,6 +234,13 @@ public struct PopoverView: View {
     }
 
     private var footer: some View {
+        VStack(spacing: 0) {
+            if let offer = services.update.waiting { UpdateStrip(offer: offer, state: services.update) { services.showUpdate() }.padding(.bottom, 10) }
+            footerButtons
+        }
+    }
+
+    private var footerButtons: some View {
         HStack(spacing: 6) {
             Button {
                 services.openActivityMonitor()

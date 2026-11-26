@@ -27,6 +27,22 @@ struct UpdatesPane: View {
         return foundNothing ? "Heron is up to date · checked \(when)" : "Last checked \(when)"
     }
 
+    enum Does { case check, install, restart, none }
+
+    /// The main button: Check Now with nothing waiting, Install Update for a waiting version,
+    /// Restart Heron Now once it is downloaded, and a busy title while it works.
+    static func action(_ update: UpdateState, checking: Bool) -> (title: String, does: Does) {
+        switch update {
+        case .available: ("Install Update", .install)
+        case .downloading: ("Downloading…", .none)
+        case .preparing: ("Preparing…", .none)
+        case .ready: ("Restart Heron Now", .restart)
+        case .installing: ("Installing…", .none)
+        case .checking: ("Checking…", .none)
+        case .idle, .failed: checking ? ("Checking…", .none) : ("Check Now", .check)
+        }
+    }
+
     /// The two switches after "Check for updates automatically" is set: installing needs checking,
     /// so turning checks off turns installing off too.
     static func switches(settingChecks checks: Bool, installs: Bool) -> (checks: Bool, installs: Bool) { (checks, checks && installs) }
@@ -36,7 +52,7 @@ struct UpdatesPane: View {
         if !checks { return "Heron will not look for updates. Use Check Now when you want one." }
         return installs
             ? "When an update comes out, Heron installs it the next time you quit. What’s New shows what changed."
-            : "When an update comes out, Heron shows it and asks before installing."
+            : "When an update comes out, Heron marks its menu bar icon and asks before installing."
     }
 
     var body: some View {
@@ -44,7 +60,9 @@ struct UpdatesPane: View {
         let available = services.updaterAvailable
         let checks = services.automaticallyChecksForUpdates
         let installs = checks && services.automaticallyDownloadsUpdates
-        let upToDate = !services.checkingForUpdates && services.lastCheckFoundNothing && services.lastUpdateCheck != nil
+        let update = services.update
+        let upToDate = update.offer == nil && !services.checkingForUpdates && services.lastCheckFoundNothing && services.lastUpdateCheck != nil
+        let action = Self.action(update, checking: services.checkingForUpdates)
         VStack(alignment: .leading, spacing: 0) {
             PaneHeader(pane: .updates)
             if !available {
@@ -59,24 +77,41 @@ struct UpdatesPane: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Heron \(services.appVersion) (\(services.buildNumber))").font(.system(size: 15, weight: .semibold)).monospacedDigit()
                         HStack(spacing: 6) {
-                            Circle().fill(upToDate ? Theme.memory : Theme.muted).frame(width: 7, height: 7).accessibilityHidden(true)
-                            Text(Self.status(checking: services.checkingForUpdates, lastCheck: services.lastUpdateCheck, foundNothing: services.lastCheckFoundNothing))
-                                .font(.system(size: 12)).foregroundStyle(Theme.muted).monospacedDigit().lineLimit(1)
+                            Circle().fill(update.offer != nil ? Theme.accent : (upToDate ? Theme.memory : Theme.muted)).frame(width: 7, height: 7).accessibilityHidden(true)
+                            Text(
+                                update.statusLine
+                                    ?? Self.status(checking: services.checkingForUpdates, lastCheck: services.lastUpdateCheck, foundNothing: services.lastCheckFoundNothing)
+                            )
+                            .font(.system(size: 12)).foregroundStyle(Theme.muted).monospacedDigit().lineLimit(1)
                         }
                         .accessibilityElement(children: .combine)
                     }
                     Spacer(minLength: 8)
-                    Button("What’s New…") { services.showChangelog() }
-                    Button(services.checkingForUpdates ? "Checking…" : "Check Now") {
-                        services.checkingForUpdates = true
-                        services.checkForUpdates()
+                    if let offer = update.offer {
+                        Button("What’s New in \(offer.version)…") { services.showUpdate() }
+                    } else {
+                        Button("What’s New…") { services.showChangelog() }
+                    }
+                    Button(action.title) {
+                        switch action.does {
+                        case .check:
+                            services.checkingForUpdates = true
+                            services.checkForUpdates()
+                        case .install: services.installUpdate()
+                        case .restart: services.restartToUpdate()
+                        case .none: break
+                        }
                     }
                     .frame(minWidth: 96)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!available || services.checkingForUpdates)
+                    .disabled(!available || action.does == .none)
                 }
                 .padding(14)
+                if let progress = update.progress {
+                    ProgressView(value: progress).padding(.leading, 66).padding(.trailing, 14).padding(.bottom, 14)
+                        .accessibilityLabel(update.statusLine ?? "Downloading")
+                }
             }
             SettingsGroup("Automatic updates") {
                 SettingsRow(

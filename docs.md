@@ -181,34 +181,54 @@ Every new test is negative-controlled: break what it guards, watch it fail, rest
 
 ## Updates (Sparkle)
 
-Sparkle refuses to run without a signing key, so updates stay off until you set one up:
+Releases update themselves with Sparkle. Sparkle runs only in a build that carries the update feed
+and the public key (`SUFeedURL`, `SUPublicEDKey`): `scripts/release.sh` builds those. `swift run`
+and `install.sh` builds have neither, so updates stay off there and a development copy never
+"updates" itself to a release.
 
-1. `./.build/artifacts/sparkle/Sparkle/bin/generate_keys` stores the private key in your Keychain
-   and prints the public key.
-2. Host an appcast (for example on GitHub Releases) and build with
-   `FEED_URL=https://…/appcast.xml ED_KEY=<public key> packaging/make-app.sh`.
-3. For each release: `./.build/artifacts/sparkle/Sparkle/bin/generate_appcast <folder of zips>`.
-   Beta builds go in the appcast with `<sparkle:channel>beta</sparkle:channel>`; Settings › Updates
-   › Beta opts in.
-
-After an update Heron opens "What's New" once; add the release to `Changelog.entries`
-(`HeronUI/Dialogs.swift`).
+- **Feed:** `https://github.com/botjaeger/heron/releases/latest/download/appcast.xml`, the newest
+  stable release's `appcast.xml`. Each entry carries the version, the build number (the commit
+  count), macOS 14.0 as the minimum, the DMG's size and EdDSA signature, and the release notes.
+- **Key:** the private key lives only in the maintainer's login keychain (`generate_keys --account
+  heron`); the public half is `packaging/sparkle-ed.pub`. Sparkle installs only a DMG whose
+  signature matches it.
+- **Heron's own face:** `HeronUserDriver` (`Sources/Heron/UpdateDriver.swift`) replaces Sparkle's
+  windows and moves one `UpdateState` (`AppServices.update`) that every surface reads: Settings ›
+  Updates, the update window (`UpdateView`), About, the dot on the menu bar icon, the strip above
+  the overview's footer and the right-click menu item. Guard: `everyUpdateSurfaceReadsTheOneState`.
+- **When it shows:** the daily check only marks a new version as waiting (dot, strip, "Update to
+  Heron 1.1.0…") and opens nothing; Check Now, or choosing the waiting update, opens the update
+  window. A downloaded update installs when Heron quits; Restart Heron Now installs it at once.
+  With "Install updates automatically" it downloads and installs on quit with no mark at all.
+- **Notes:** the update window shows the new version's `Changelog.entries` entry, which the feed
+  carries as HTML (`ReleaseNotes`, written by `Heron changelog --notes <version>`). Add every release
+  to `Changelog.entries` (`HeronUI/Dialogs.swift`); `release.sh` refuses a version without one.
+  After an update Heron opens What's New once.
+- **Beta:** a pre-release's entry, marked `<sparkle:channel>beta</sparkle:channel>`, is added to the
+  stable release's feed; Settings › Updates › Beta opts in.
+- **End-to-end test:** `HERON_UPDATE_TEST` on a test copy (its own bundle id, `BUNDLE_ID=…` for
+  `make-app.sh`, so it never shares the real app's settings) served a feed from a local server:
+  `1` installs at once in the background, `buttons` presses Check Now, Install Update and Restart
+  Heron Now in code, `scheduled` runs the daily check's path and only logs. Verified 2026-11-26:
+  9.0.0 → 9.0.1 on both paths, the scheduled one marked 9.0.1 as waiting with no window.
 
 ## Website
 
-`site/` is the website: one static `index.html` (no build step, system fonts, no libraries) and
-the app's own screens in `site/img`. `.github/workflows/pages.yml` publishes it to GitHub Pages when
+`site/` is the website: one static `index.html` (no build step, system fonts, no libraries) and its
+icon and share image in `site/img`. `.github/workflows/pages.yml` publishes it to GitHub Pages when
 `site/` changes on `main` (Settings › Pages › Source: GitHub Actions; the free plan needs a public
-repo). `scripts/check.sh` checks that every local file the page links to exists.
+repo). `scripts/check.sh` checks that every local file and `#anchor` the page links to exists.
 
-- **One moving piece.** Scrolling builds the menu bar item part by part, magnified in a loupe under
-  it, then "clicks" it and the overview drops down. The wallpaper behind it is the Heron gauge as
-  tone-on-tone paper and stays background; nothing else on the page animates.
-- **Screens are real renders.** Refresh them with `swift run heron-snap <folder>` and copy
-  `popover-overview`, `panel-sensors` and `ai-popover-card` (`-light` and `-dark`) into `site/img`,
-  then update the image `alt` text and the "rendered on" note to the new readings.
-- **Never publish a render that shows your own data**: the CPU and memory panels list your running
-  processes, and real AI accounts show their names. Use the example accounts (`heron-snap` fixtures).
+- **Light paper, dark screens.** The page is light (navy in dark mode); everything that stands for
+  Heron itself (the menu bar item, the overview, the feature drawings, the read/write diagram) sits
+  on the app's dark desk. Download is ink on paper, in the bar that stays at the top and in Get Heron.
+- **Try it on the page.** The menu bar item and the overview are drawn in HTML with sample readings
+  that drift every second (still with reduced motion, paused in a background tab). Pointing at,
+  tapping or focusing a card opens its panel; they say they are sample readings, never the visitor's
+  Mac. Keep their layout in step with the app's (`PopoverView`, `MenuBarLabel`).
+- **The share image is a real render**: `img/popover-overview-dark.png` from `heron-snap`. Never
+  publish a render that shows your own data (process lists, real AI account names); use the example
+  accounts (`heron-snap` fixtures).
 - **Claims stay true.** No feature, release or number on the page that the app or repo does not have.
 
 ## Distribution
@@ -216,19 +236,33 @@ repo). `scripts/check.sh` checks that every local file the page links to exists.
 Without an Apple Developer account, `packaging/make-app.sh` makes an ad-hoc signed app. People who
 download it must allow it once in System Settings › Privacy & Security before it opens.
 
-Every release ships a disk image on GitHub Releases, built by GitHub Actions. After the release
-commit is pushed (so the pre-push gates ran on it), `scripts/release.sh 1.2.0` tags it `v1.2.0`
-and pushes the tag. `.github/workflows/release.yml` then runs `packaging/make-dmg.sh` (Heron.app
-plus a link to Applications, mounted and checked) on a macOS runner with its newest released
-Xcode, and publishes the release with `Heron.dmg` attached. The asset keeps one name, so the
+Releases are made on the maintainer's Mac, as Rift's are, because the two things that sign them
+live only in its login keychain and never reach GitHub:
+
+- **"Heron Signing"**, a self-signed code-signing certificate. Its designated requirement
+  (`certificate leaf = H"…"`) is the same in every build, so the Keychain keeps Heron's access
+  across updates; an ad-hoc signature changes with every build. A self-signed certificate has no
+  Team ID, so `make-app.sh` signs with it without the hardened runtime: library validation refused
+  Sparkle otherwise ("different Team IDs", 2026-11-26).
+- **The Sparkle key** (account `heron`), which signs each release's DMG in the update feed.
+
+After the release commit is pushed (so the pre-push gates ran on it) and its version is in
+`Changelog.entries`, `scripts/release.sh 1.2.0` checks both are present, builds Heron.app and
+`Heron.dmg` (Heron.app plus a link to Applications, mounted and checked), writes and signs
+`appcast.xml`, tags the commit `v1.2.0`, publishes the GitHub release with both files, and downloads
+them back to check them. `--dry-run` stops before the tag. The DMG keeps one name, so the
 website's Download button (`releases/latest/download/Heron.dmg`) always gets the newest release; a
 version with a suffix (`1.2.0-beta.1`) is published as a pre-release, which that link skips.
-Running the workflow by hand (Actions › Release › Run workflow) builds the disk image without
-releasing it; `packaging/make-dmg.sh` builds the same one on this Mac.
+`.github/workflows/release.yml` is a build check only (run by hand): it builds the DMG with the
+runners' Xcode and publishes nothing.
 
-With a Developer ID: `SIGN_ID="Developer ID Application: …" packaging/make-app.sh`, then notarize
-the zip with `xcrun notarytool submit … --wait` and `xcrun stapler staple dist/Heron.app`. For
-releases, the certificate and notarization would move into the workflow as repository secrets.
+People who download Heron still allow it once in System Settings › Privacy & Security (no Developer
+ID, so no notarization). Updates installed by Heron itself carry no quarantine flag, so that is
+asked only for the first download. Back up the certificate and the Sparkle key (Keychain Access ›
+export): a new key means copies on older releases can no longer verify updates.
+
+With a Developer ID: `SIGN_ID="Developer ID Application: …" packaging/make-app.sh` (hardened
+runtime on), then notarize with `xcrun notarytool submit … --wait` and `xcrun stapler staple`.
 
 The app icon is drawn from code (`HeronShape`, `HeronMark`); regenerate it with
 `swift run heron-snap --icon packaging/AppIcon.icns`.

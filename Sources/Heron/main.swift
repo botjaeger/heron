@@ -15,6 +15,22 @@ if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "usage" {
     exit(status)
 }
 
+// `Heron changelog --notes <version>` prints that release's notes as the update feed carries them
+// (`ReleaseNotes`), for scripts/release.sh; exit 1 when Changelog.entries has no such release.
+if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "changelog" {
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    guard args.count == 2, args[0] == "--notes" else {
+        FileHandle.standardError.write(Data("usage: Heron changelog --notes <version>\n".utf8))
+        exit(2)
+    }
+    guard let html = ReleaseNotes.html(for: args[1]) else {
+        FileHandle.standardError.write(Data("Changelog.entries has no entry for \(args[1]).\n".utf8))
+        exit(1)
+    }
+    print(html)
+    exit(0)
+}
+
 // Entry point. Heron is a plain AppKit app (no Dock icon) whose windows are SwiftUI views.
 // An AppKit entry point gives full control over the status bar items: their order,
 // their images and their popovers.

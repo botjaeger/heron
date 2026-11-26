@@ -78,16 +78,26 @@ public enum StatusMenu {
     public static let layout: [Entry?] = [.settings, .activityMonitor, nil, .checkForUpdates, .whatsNew, .about, nil, .quit]
 
     /// The menu, each entry sending its `action` to `target`. An entry whose action is nil is greyed
-    /// out (Check for Updates… in a build without updates).
-    public static func make(target: AnyObject, action: (Entry) -> Selector?) -> NSMenu {
+    /// out (Check for Updates… in a build without updates). While an update waits, Check for
+    /// Updates… reads "Update to Heron 1.1.0…" with the icon's blue dot (`UpdateState.menuTitle`).
+    public static func make(target: AnyObject, update: UpdateState = .idle, action: (Entry) -> Selector?) -> NSMenu {
         let menu = NSMenu()
         for entry in layout {
             guard let entry else { menu.addItem(.separator()); continue }
-            let item = NSMenuItem(title: entry.title, action: action(entry), keyEquivalent: entry.key)
+            let title = entry == .checkForUpdates ? update.menuTitle : entry.title
+            let item = NSMenuItem(title: title, action: action(entry), keyEquivalent: entry.key)
             item.keyEquivalentModifierMask = .command
             item.target = target
+            if entry == .checkForUpdates, update.waiting != nil { item.image = waitingDot }
             menu.addItem(item)
         }
         return menu
+    }
+
+    /// The blue dot of an update that waits: on the menu bar icon and beside its menu item.
+    static let waitingDot: NSImage = NSImage(size: NSSize(width: 8, height: 8), flipped: false) { rect in
+        NSColor(hex: Theme.Palette.accent).setFill()
+        NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+        return true
     }
 }

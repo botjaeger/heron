@@ -232,7 +232,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     func update() {
         if panels.open != nil { placePanel() }  // its height follows the readings
         guard let button = item?.button else { return }
-        if settings.shownItems.isEmpty {  // nothing shown: the icon is drawn whatever "Show icon" says
+        let updateWaiting = services.update.waiting != nil
+        if settings.shownItems.isEmpty && !updateWaiting {  // nothing shown: the icon is drawn whatever "Show icon" says
             // Icon only: a fixed template image, nothing to re-render every second.
             if button.image !== Self.markImage { button.image = Self.markImage }
             renderedKey = nil
@@ -245,6 +246,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         // being re-tinted by macOS.
         let dark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         var label = MenuBarLabel(snapshot: monitor.snapshot, history: monitor.history, settings: settings, ai: ai)
+        label.updateWaiting = updateWaiting
         if label.isColoured { label.ink = dark ? .white : .black; label.dark = dark }
         // The menu bar's own screen: a Retina laptop beside a 1x display draws each at its scale.
         let scale = button.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
@@ -317,7 +319,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     private func showMenu(for item: NSStatusItem) {
         let updates = services.updaterAvailable
-        let menu = StatusMenu.make(target: self) { entry in
+        let menu = StatusMenu.make(target: self, update: services.update) { entry in
             switch entry {
             case .settings: return #selector(menuSettings)
             case .activityMonitor: return #selector(menuActivityMonitor)
@@ -335,7 +337,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     @objc private func menuAbout() { services.showAbout() }
     @objc private func menuChangelog() { services.showChangelog() }
-    @objc private func menuUpdates() { services.checkForUpdates() }
+    @objc private func menuUpdates() {
+        if services.update.waiting != nil { services.showUpdate() } else { services.checkForUpdates() }
+    }
     @objc private func menuSettings() { services.openSettings(SettingsRoute(.menuBar)) }
     @objc private func menuActivityMonitor() { services.openActivityMonitor() }
     @objc private func menuQuit() { services.quit() }

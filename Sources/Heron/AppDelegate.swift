@@ -46,7 +46,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             alerts.permission { [weak self] permission in self?.services.notificationPermission = permission }
         }
-        updater.start(settings: settings)
+        updater.start(settings: settings, services: services)
+        if let driver = updater.driver {
+            driver.showWindow = { [weak self] in
+                self?.statusBar.closePopovers(); self?.windows.showUpdate()
+            }
+            driver.closeWindow = { [weak self] in self?.windows.closeUpdate() }
+            services.showUpdate = { driver.showUpdate() }
+            services.installUpdate = { driver.install() }
+            services.skipUpdate = { driver.skip() }
+            services.laterUpdate = { driver.later() }
+            services.restartToUpdate = { driver.install() }
+            if Updater.pressesButtons || Updater.checksQuietly { updater.pressButtons(services) }
+        }
         syncUpdaterState()
 
         if !settings.onboardingDone {

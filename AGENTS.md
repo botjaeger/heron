@@ -11,11 +11,11 @@ This file holds the rules for changing it.
 |---|---|
 | `CSystem` | C for private APIs with no Swift headers: SMC, HID sensors, IOReport |
 | `HeronCore` | Samplers, `Snapshot` model, `MetricHistory` / `TieredHistory`, formatting, alerts. AI usage: `AIModels`, `AIProviders` (endpoints and mapping), `AIAuth` / `AISignInFlow` (sign-in), `AIStore` (Keychain, borrowed sign-ins), `AIUsageService` (refresh), `AIPriority` (pace, urgency ranking), `AIResetPlan` (the limit resets strip), `AIAlerts`, `AIUsageExport` (`Heron usage --json`). No UI |
-| `HeronUI` | Every view: overview (`PopoverView`, `OverviewCards`, `OverviewSections`, `PopoverParts`, `HistoryViews`, `Summaries` for `FanSummary` / `SensorSummary`), detail panels (`DetailPanels`, `PanelRows`), menu bar item (`MenuBarLabel`), Settings (`SettingsView`, `SettingsParts`, one file per pane: `SettingsMenuBar`, `SettingsOverview`, `SettingsAlerts`, `SettingsUpdates`), `AboutView`, AI usage (`AICard`, `AIPanel`, `AIResetsPage`, `SettingsAIUsage`, `SettingsMenuBarAI`, `SettingsOverviewAI`, `AISettings`, `ProviderMarks`), icons, `Theme`, `Warnings` |
-| `Heron` | The app: `AppDelegate` (wires the parts together; `main` answers `Heron usage --json` before any UI), `StatusBarController` (status item, popover, panel; its smoke hooks in `StatusBarController+Smoke`), `DetailPanelWindow`, `WindowManager`, `BundleWatcher` (reload when the installed copy is replaced), `HotKey` (the AI panel shortcut), notifications and Sparkle (`Services`) |
+| `HeronUI` | Every view: overview (`PopoverView`, `OverviewCards`, `OverviewSections`, `PopoverParts`, `HistoryViews`, `Summaries` for `FanSummary` / `SensorSummary`), detail panels (`DetailPanels`, `PanelRows`), menu bar item (`MenuBarLabel`), Settings (`SettingsView`, `SettingsParts`, one file per pane: `SettingsMenuBar`, `SettingsOverview`, `SettingsAlerts`, `SettingsUpdates`), `AboutView`, AI usage (`AICard`, `AIPanel`, `AIResetsPage`, `SettingsAIUsage`, `SettingsMenuBarAI`, `SettingsOverviewAI`, `AISettings`, `ProviderMarks`), updates (`UpdateState`, the one state every update surface reads; `UpdateView`, the update window and the popover's strip; `ReleaseNotes`, the feed's notes), icons, `Theme`, `Warnings` |
+| `Heron` | The app: `AppDelegate` (wires the parts together; `main` answers `Heron usage --json` and `Heron changelog --notes` before any UI), `StatusBarController` (status item, popover, panel; its smoke hooks in `StatusBarController+Smoke`), `DetailPanelWindow`, `WindowManager`, `BundleWatcher` (reload when the installed copy is replaced), `HotKey` (the AI panel shortcut), notifications and Sparkle (`Services`), `UpdateDriver` (Sparkle's steps, shown by Heron instead of Sparkle's windows) |
 | `heron-probe` | Prints every reading once. Prove a new data source here before any UI uses it |
 | `heron-snap` | Renders every screen to PNG in light and dark |
-| `site/` | The website: one static `index.html` and real `heron-snap` renders in `site/img`; published to GitHub Pages by `.github/workflows/pages.yml` |
+| `site/` | The website: one static `index.html` (a live sample of the menu bar item and the overview, drawn in HTML) and its share image, a real `heron-snap` render, in `site/img`; published to GitHub Pages by `.github/workflows/pages.yml` |
 
 ## Commands
 
@@ -47,12 +47,14 @@ packaging/make-app.sh && codesign --verify --deep --strict dist/Heron.app
 HERON_SMOKE_SECONDS=8 swift run Heron         # end to end; opens real windows (see below)
 packaging/install.sh                          # last: installs /Applications/Heron.app; the running one reloads itself
 packaging/make-dmg.sh                         # dist/Heron.dmg: Heron.app plus a link to Applications
-scripts/release.sh <version>                  # only when asked to release: tags the pushed HEAD and pushes the tag
+scripts/release.sh <version> [--dry-run]      # only when asked to release: builds, signs and publishes from this Mac
 ```
 
-Every release goes out through `scripts/release.sh`: the pushed tag runs
-`.github/workflows/release.yml`, which builds `Heron.dmg` and publishes the release with it, the
-file the website's Download button fetches (`docs.md` › Distribution).
+Every release goes out through `scripts/release.sh`, on the maintainer's Mac: it signs Heron.app
+with the "Heron Signing" certificate and the update feed with the Sparkle key, both only in the
+login keychain, then publishes `Heron.dmg` (the website's Download button) and `appcast.xml` (what
+every copy checks once a day). Add the version to `Changelog.entries` first: its entry is the
+update window's notes. Never move either key off the Mac (`docs.md` › Distribution).
 
 Run the full set once, after all work is done, before saying it is finished. Name each gate and
 its counts in the report. Then run `packaging/install.sh` after every finished change: the

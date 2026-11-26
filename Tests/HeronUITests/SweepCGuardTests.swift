@@ -113,6 +113,11 @@ private func appSource(_ file: String) -> String? { sourceFiles("Heron").first {
         let calledByTheSystem: Set<String> = [
             "applicationDidFinishLaunching", "userNotificationCenter", "windowWillClose", "popoverDidClose", "allowedChannels",
             "updaterDidNotFindUpdate", "updater",
+            // SPUUserDriver: Sparkle calls every one (HeronUserDriver).
+            "show", "showUserInitiatedUpdateCheck", "showUpdateFound", "showUpdateReleaseNotes", "showUpdateReleaseNotesFailedToDownloadWithError",
+            "showUpdateNotFoundWithError", "showUpdaterError", "showDownloadInitiated", "showDownloadDidReceiveExpectedContentLength",
+            "showDownloadDidReceiveData", "showDownloadDidStartExtractingUpdate", "showExtractionReceivedProgress", "showReady",
+            "showInstallingUpdate", "showUpdateInstalledAndRelaunched", "showUpdateInFocus", "dismissUpdateInstallation",
         ]
         for (name, text) in files {
             for line in text.split(separator: "\n") where !line.contains("override ") && !line.contains("@objc") {

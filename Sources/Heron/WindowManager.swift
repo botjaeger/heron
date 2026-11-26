@@ -51,6 +51,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
         show("changelog", title: "What’s New in Heron") { ChangelogView { [weak self] in self?.windows["changelog"]?.close() } }
     }
     func showAbout() { show("about", title: "About Heron", untitled: true) { AboutView() } }
+    func showUpdate() { show("update", title: "Update Heron") { UpdateView() } }
+    func closeUpdate() { windows["update"]?.close() }
 
     /// `sidebar`: the content runs up under a transparent title bar (Settings, as in the design:
     /// the sidebar starts at the window's top edge, the traffic lights over it).
@@ -98,6 +100,11 @@ final class WindowManager: NSObject, NSWindowDelegate {
             let id = windows.first(where: { $0.value === window })?.key
         else { return }
         if id == "onboarding" && !settings.onboardingDone { settings.onboardingDone = true }
+        // Closing the update window is "Later" (its own button closes it the same way).
+        if id == "update" {
+            windows[id] = nil
+            services.laterUpdate()
+        }
         // A closed window kept its SwiftUI view alive, and a hidden Settings on Menu Bar re-rendered
         // its previews on every sample. Every open builds a fresh window, so let this one go.
         windows[id] = nil

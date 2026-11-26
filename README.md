@@ -39,7 +39,8 @@ It idles at about 1% CPU. Distributed outside the Mac App Store (it reads privat
   critical notifications. Sign in in the browser, with a device code, or borrow the sign-in Claude
   Code or Codex already saved, read-only. `Heron usage --json` prints the last readings.
 - **Alerts.** Notifications for heat, full disks, low battery and more, with a repeat limit.
-- **Updates.** Sparkle, with a beta channel.
+- **Updates.** Checks once a day and marks its menu bar icon when a new version is out; installs
+  it when you say, or on its own. Signed releases, a beta channel.
 
 ## Install
 
@@ -78,9 +79,10 @@ scripts/install-hooks.sh  # pre-commit and pre-push hooks (in a git clone)
 
 ## Privacy
 
-Heron reads your Mac's sensors; the readings never leave it. It goes online only for what you turn
-on: AI usage (only the providers' own endpoints), update checks (Sparkle, once a feed is set), and
-your public IP when you ask for it. Heron's own sign-ins stay in your Keychain.
+Heron reads your Mac's sensors; the readings never leave it. It goes online only for: a check for
+a new version once a day (Sparkle, reading the release feed on GitHub; Settings › Updates turns it
+off), AI usage (only the providers' own endpoints, once you add an account), and your public IP when
+you ask for it. Heron's own sign-ins stay in your Keychain.
 
 ## Licence
 

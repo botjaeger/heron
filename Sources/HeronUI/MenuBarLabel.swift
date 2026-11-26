@@ -17,6 +17,8 @@ public struct MenuBarLabel: View {
     public var dark: Bool = false { didSet { recolour() } }
     /// The AI accounts, for the AI usage item. Without it that item draws nothing.
     public var ai: AIUsageService? { didSet { segments = makeSegments() } }
+    /// An update waits for you (`UpdateState.waiting`): the glyph shows, with a blue dot.
+    public var updateWaiting = false
 
     public init(snapshot: Snapshot, history: MetricHistory, settings: AppSettings, ink: Color = .black, dark: Bool = false, ai: AIUsageService? = nil) {
         self.snapshot = snapshot; self.history = history; self.settings = settings; self.ink = ink; self.dark = dark; self.ai = ai
@@ -50,6 +52,7 @@ public struct MenuBarLabel: View {
     public struct RenderKey: Equatable {
         var segments: [MenuBarSegment.RenderKey]
         var showsIcon: Bool
+        var updateWaiting: Bool
         var gap: CGFloat
         var ink: Color
         var dark: Bool
@@ -57,7 +60,7 @@ public struct MenuBarLabel: View {
     }
 
     public func renderKey(scale: CGFloat) -> RenderKey {
-        RenderKey(segments: segments.map(\.renderKey), showsIcon: showsIcon, gap: settings.spacing.gap, ink: ink, dark: dark, scale: scale)
+        RenderKey(segments: segments.map(\.renderKey), showsIcon: showsIcon, updateWaiting: updateWaiting, gap: settings.spacing.gap, ink: ink, dark: dark, scale: scale)
     }
 
     /// AI usage: only with at least one account that has a reading. `style`: the item's stored
@@ -74,18 +77,19 @@ public struct MenuBarLabel: View {
         }
     }
 
-    /// The Heron glyph: when the user asked for it, or when no segment would draw (so the item
-    /// never vanishes from the menu bar).
-    var showsIcon: Bool { settings.showIcon || segments.isEmpty }
+    /// The Heron glyph: when the user asked for it, when no segment would draw (so the item never
+    /// vanishes from the menu bar), and while an update waits (its dot sits on the glyph).
+    var showsIcon: Bool { settings.showIcon || segments.isEmpty || updateWaiting }
 
     public var isWarning: Bool { segments.contains { $0.isWarning } }
 
-    /// True when the image holds colour (a red value or metric colours), so it cannot be a template.
-    public var isColoured: Bool { segments.contains { $0.isColoured } }
+    /// True when the image holds colour (a red value, metric colours, the update dot), so it
+    /// cannot be a template.
+    public var isColoured: Bool { updateWaiting || segments.contains { $0.isColoured } }
 
     /// What VoiceOver reads for the item: the image alone says nothing.
     public var spokenValue: String {
-        let parts = segments.map(\.spokenValue)
+        let parts = segments.map(\.spokenValue) + (updateWaiting ? ["update available"] : [])
         return parts.isEmpty ? "Heron" : parts.joined(separator: ", ")
     }
 
@@ -100,7 +104,13 @@ public struct MenuBarLabel: View {
 
     public var body: some View {
         HStack(spacing: settings.spacing.gap) {
-            if showsIcon { HeronGlyph(ink: ink).frame(width: 16, height: 16) }
+            if showsIcon {
+                HeronGlyph(ink: ink).frame(width: 16, height: 16)
+                    .overlay(alignment: .topTrailing) {
+                        // Inside the glyph's box: the rendered image is clipped to the item's bounds.
+                        if updateWaiting { Circle().fill(Theme.accent).frame(width: 6, height: 6) }
+                    }
+            }
             ForEach(segments, id: \.kind) { $0 }
         }
         .frame(height: 18)

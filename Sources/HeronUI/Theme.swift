@@ -130,6 +130,8 @@ public enum Theme {
     public static let muted = dynamic(Palette.muted)
     public static let upload = dynamic(Palette.upload)
     public static let caution = dynamic(Palette.caution)
+    /// The control blue: buttons, and an update that waits for you (the icon dot, the popover strip).
+    public static let accent = Color(nsColor: NSColor(hex: Palette.accent))
 
     static let settingsWindow = dynamic(Palette.settingsWindow)
     static let settingsSidebar = dynamic(Palette.settingsSidebar)

@@ -20,6 +20,8 @@ public final class AppServices {
     /// A check started from Settings › Updates is running.
     public var checkingForUpdates = false
     public var updaterAvailable = false
+    /// Where an update stands; every update surface reads it (`UpdateState`).
+    public var update: UpdateState = .idle
     public var publicIP: String?
     /// Whether macOS lets Heron show notifications (`UNUserNotificationCenter`'s authorization).
     public var notificationPermission: NotificationPermission = .allowed
@@ -28,6 +30,14 @@ public final class AppServices {
     @ObservationIgnored public var checkForUpdates: () -> Void = {}
     @ObservationIgnored public var setAutomaticChecks: (Bool) -> Void = { _ in }
     @ObservationIgnored public var setAutomaticDownloads: (Bool) -> Void = { _ in }
+    /// The waiting update's window (the icon dot's, the popover strip's and the menu item's action).
+    @ObservationIgnored public var showUpdate: () -> Void = {}
+    /// The update window's and Settings' buttons: download and install it, skip this version, not now.
+    @ObservationIgnored public var installUpdate: () -> Void = {}
+    @ObservationIgnored public var skipUpdate: () -> Void = {}
+    @ObservationIgnored public var laterUpdate: () -> Void = {}
+    /// Restart Heron Now: install the downloaded update at once instead of when Heron quits.
+    @ObservationIgnored public var restartToUpdate: () -> Void = {}
     @ObservationIgnored public var fetchPublicIP: () -> Void = {}
     @ObservationIgnored public var openSettings: (SettingsRoute) -> Void = { _ in }
     @ObservationIgnored public var openActivityMonitor: () -> Void = {}

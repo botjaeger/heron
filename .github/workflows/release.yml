@@ -1,24 +1,15 @@
-# Builds Heron.dmg and publishes it as a GitHub release whenever a version tag (v1.2.0) is pushed;
-# scripts/release.sh pushes that tag. The website's Download button fetches the newest release's
-# Heron.dmg (releases/latest/download/Heron.dmg). A tag with a suffix (v1.2.0-beta.1) becomes a
-# pre-release, which that link skips.
-#
-# Run it by hand (Actions › Release › Run workflow) to build the disk image without releasing:
-# it is kept as the run's artifact. The gates already ran before the push (pre-push hook), so this
-# only builds.
-name: Release
+# A build check for releases: builds Heron.dmg on GitHub's macOS runner with its newest released
+# Xcode and keeps it as the run's artifact. It never signs or publishes anything: releases are made
+# on the maintainer's Mac with scripts/release.sh, where the signing certificate and the Sparkle key
+# live (docs.md › Distribution). Run it by hand (Actions › Release build › Run workflow) to see
+# whether the code still builds with the older Xcode on the runners.
+name: Release build
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  contents: read
 
 jobs:
   dmg:
@@ -36,33 +27,11 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Version
-        id: v
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then version="${GITHUB_REF_NAME#v}"; else version="0.0.0-dev"; fi
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "Not a version tag: $GITHUB_REF_NAME"; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "build=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Build Heron.dmg
-        env:
-          VERSION: ${{ steps.v.outputs.version }}
-          BUILD: ${{ steps.v.outputs.build }}
-        run: packaging/make-dmg.sh
+        run: VERSION=0.0.0-dev BUILD="$(git rev-list --count HEAD)" packaging/make-dmg.sh
 
-      - name: Keep the disk image (manual run)
-        if: github.ref_type != 'tag'
+      - name: Keep the disk image
         uses: actions/upload-artifact@v4
         with:
           name: Heron-dmg
           path: dist/Heron.dmg
-
-      - name: Publish the release
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.v.outputs.version }}
-        run: |
-          pre=()
-          [[ "$VERSION" == *-* ]] && pre=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" dist/Heron.dmg --title "Heron $VERSION" --generate-notes --verify-tag "${pre[@]}"

@@ -699,6 +699,18 @@ public enum Changelog {
     /// Newest first. Add an entry here with every release; "What's new" opens after an update.
     public static let entries: [ChangelogEntry] = [
         ChangelogEntry(
+            version: "1.1.0", date: "November 2026",
+            groups: [
+                (
+                    "NEW",
+                    [
+                        ChangelogItem("Updates on their own", "Heron checks once a day and puts a dot on its icon when a new version is out.", icon: .updates, color: Theme.cpu),
+                        ChangelogItem(
+                            "Install when you choose", "Install from the update window, restart now, or let it install when you quit.", icon: .check, color: Theme.memory),
+                    ]
+                )
+            ]),
+        ChangelogEntry(
             version: "1.0.0", date: "2026",
             groups: [
                 (
@@ -712,7 +724,7 @@ public enum Changelog {
                         ChangelogItem("Light, dark and updates", "Follows your appearance setting and keeps itself up to date.", icon: .updates, color: Theme.muted),
                     ]
                 )
-            ])
+            ]),
     ]
 
     /// A group's caption colour: new in the memory green, fixes in the network amber, the rest in the CPU blue.
@@ -791,24 +803,6 @@ public struct ChangelogView: View {
     }
 
     private func item(_ item: ChangelogItem) -> some View {
-        let color = item.color
-        return HStack(alignment: .top, spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 7).fill(color.opacity(0.15))
-                HeronIconView(item.icon, size: 15)
-            }
-            .foregroundStyle(color)
-            .frame(width: 26, height: 26)
-            .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title).font(.system(size: 13, weight: .semibold))
-                Text(item.body).font(.system(size: 12)).lineSpacing(2).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.settingsCard, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.settingsLine, lineWidth: 1))
+        ChangeCard(icon: item.icon, color: item.color, title: item.title, text: item.body)
     }
 }

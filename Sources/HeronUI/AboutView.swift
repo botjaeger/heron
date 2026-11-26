@@ -33,9 +33,12 @@ public struct AboutView: View {
 
     private var window: some View {
         let available = services.updaterAvailable
-        let line = Self.updateLine(
+        let update = services.update
+        let checked = Self.updateLine(
             available: available, checking: services.checkingForUpdates,
             lastCheck: services.lastUpdateCheck, foundNothing: services.lastCheckFoundNothing)
+        // An update under way says so here too, in Settings › Updates' words.
+        let line = available ? (update.statusLine.map { (text: $0, upToDate: false) } ?? checked) : checked
         return VStack(spacing: 0) {
             HeronMark(size: 88)
             Text("Heron").font(.system(size: 24, weight: .bold)).tracking(-0.3).padding(.top, 12)
@@ -44,11 +47,15 @@ public struct AboutView: View {
             Text("Everything your Mac is doing, one glance away.").font(.system(size: 13)).multilineTextAlignment(.center)
                 .padding(.top, 8)
             HStack(spacing: 8) {
-                Button(services.checkingForUpdates ? "Checking…" : "Check for Updates") {
-                    services.checkingForUpdates = true
-                    services.checkForUpdates()
+                if update.waiting != nil {
+                    Button(update.menuTitle) { services.showUpdate() }
+                } else {
+                    Button(services.checkingForUpdates ? "Checking…" : "Check for Updates") {
+                        services.checkingForUpdates = true
+                        services.checkForUpdates()
+                    }
+                    .disabled(!available || services.checkingForUpdates)
                 }
-                .disabled(!available || services.checkingForUpdates)
                 Button("Website") { services.openURL(AppServices.website) }
                 Button("Acknowledgements") { showsNotices = true }
             }

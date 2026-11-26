@@ -89,41 +89,123 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
     }
 }
 
-/// Sparkle auto-updates. Sparkle refuses to run without an EdDSA public key (SUPublicEDKey in
-/// Info.plist), so until one is configured the updater stays off and "Check for Updates" is disabled.
+/// Sparkle auto-updates, shown by Heron itself (`HeronUserDriver`). Sparkle refuses to run without
+/// an EdDSA public key (SUPublicEDKey in Info.plist): builds made without the update feed and key
+/// (`swift run`, `install.sh`) keep updates off and "Check for Updates" disabled. Releases carry
+/// both (scripts/release.sh).
+@MainActor
 final class Updater: NSObject, SPUUpdaterDelegate {
-    private var controller: SPUStandardUpdaterController?
+    private var updater: SPUUpdater?
+    private(set) var driver: HeronUserDriver?
     private weak var settings: AppSettings?
     /// A check's outcome: true when it found no newer version.
     var onResult: (Bool) -> Void = { _ in }
     /// A check ended (with or without an update, or an error).
     var onFinish: () -> Void = {}
 
-    var isAvailable: Bool { controller != nil }
+    var isAvailable: Bool { updater != nil }
 
-    func start(settings: AppSettings) {
+    func start(settings: AppSettings, services: AppServices) {
         self.settings = settings
         let info = Bundle.main.infoDictionary ?? [:]
-        guard let key = info["SUPublicEDKey"] as? String, !key.isEmpty, info["SUFeedURL"] != nil else {
+        guard let key = info["SUPublicEDKey"] as? String, !key.isEmpty, let feed = info["SUFeedURL"] as? String, !feed.isEmpty else {
             NSLog("Heron: updates off (no SUPublicEDKey / SUFeedURL in Info.plist)")
             return
         }
-        controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+        let driver = HeronUserDriver(services: services)
+        let updater = SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: driver, delegate: self)
+        do {
+            try updater.start()
+        } catch {
+            NSLog("Heron: updates off (Sparkle did not start: \(error.localizedDescription))")
+            return
+        }
+        driver.check = { [weak updater] in updater?.checkForUpdates() }
+        self.driver = driver
+        self.updater = updater
+        if Self.installsAtOnce {
+            NSLog("Heron update test: checking \(feed)")
+            updater.automaticallyDownloadsUpdates = true
+            updater.checkForUpdatesInBackground()
+        }
     }
 
-    func checkNow() { controller?.checkForUpdates(nil) }
+    /// `HERON_UPDATE_TEST=1`: check at launch, download in the background and install at once, with
+    /// no window or click. Proves the whole update chain end to end on a test copy (docs.md ›
+    /// Updates); never set for a copy someone uses.
+    static var installsAtOnce: Bool { ProcessInfo.processInfo.environment["HERON_UPDATE_TEST"] == "1" }
+    /// `HERON_UPDATE_TEST=buttons`: the path a person takes, with Heron's own buttons pressed in
+    /// code: Check Now, then Install Update in the window it opens, then Restart Heron Now.
+    static var pressesButtons: Bool { ProcessInfo.processInfo.environment["HERON_UPDATE_TEST"] == "buttons" }
+    /// `HERON_UPDATE_TEST=scheduled`: the daily check's path: a background check that should only
+    /// mark the update as waiting (dot, strip, menu item) and open nothing. Logs the states.
+    static var checksQuietly: Bool { ProcessInfo.processInfo.environment["HERON_UPDATE_TEST"] == "scheduled" }
+
+    /// Drives `pressesButtons` or `checksQuietly`, logging every state it passes through.
+    func pressButtons(_ services: AppServices) {
+        if Self.checksQuietly {
+            updater?.automaticallyDownloadsUpdates = false
+            updater?.checkForUpdatesInBackground()
+            pressed = ["install", "restart"]  // watch only
+        } else {
+            services.checkForUpdates()
+        }
+        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pressNext(services) }
+        }
+    }
+
+    private var lastLogged = ""
+    private var pressed: Set<String> = []
+
+    private func pressNext(_ services: AppServices) {
+        let state = "\(services.update)"
+        if state != lastLogged {
+            let windows = NSApp.windows.filter(\.isVisible).map(\.title).filter { !$0.isEmpty }
+            NSLog("Heron update test: \(state.prefix(60)) · waiting \(services.update.waiting?.version ?? "none") · windows \(windows)")
+            lastLogged = state
+        }
+        switch services.update {
+        case .available where !pressed.contains("install"): pressed.insert("install"); services.installUpdate()
+        case .ready where !pressed.contains("restart"): pressed.insert("restart"); services.restartToUpdate()
+        default: break
+        }
+    }
+
+    /// A downloaded update waits for Heron to quit; Restart Heron Now runs this block early. With
+    /// "Install updates automatically" it was found and downloaded without you, so nothing marks it.
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        if Self.installsAtOnce {
+            NSLog("Heron update test: installing \(item.displayVersionString) now")
+            immediateInstallHandler()
+            return true
+        }
+        guard let driver else { return false }
+        driver.installNow = immediateInstallHandler
+        if case .ready = driver.services.update {
+        } else {
+            driver.services.update = .ready(HeronUserDriver.offer(item, automatic: updater.automaticallyDownloadsUpdates))
+        }
+        return true
+    }
+
+    func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
+        NSLog("Heron update: aborted: \(error.localizedDescription) \((error as NSError).userInfo)")
+    }
+
+    func checkNow() { updater?.checkForUpdates() }
 
     var automaticallyChecks: Bool {
-        get { controller?.updater.automaticallyChecksForUpdates ?? false }
-        set { controller?.updater.automaticallyChecksForUpdates = newValue }
+        get { updater?.automaticallyChecksForUpdates ?? false }
+        set { updater?.automaticallyChecksForUpdates = newValue }
     }
 
     var automaticallyDownloads: Bool {
-        get { controller?.updater.automaticallyDownloadsUpdates ?? false }
-        set { controller?.updater.automaticallyDownloadsUpdates = newValue }
+        get { updater?.automaticallyDownloadsUpdates ?? false }
+        set { updater?.automaticallyDownloadsUpdates = newValue }
     }
 
-    var lastCheck: Date? { controller?.updater.lastUpdateCheckDate }
+    var lastCheck: Date? { updater?.lastUpdateCheckDate }
 
     /// Beta channel: the appcast marks beta builds with <sparkle:channel>beta</sparkle:channel>.
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {

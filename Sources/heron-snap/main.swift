@@ -96,10 +96,16 @@ struct MenuBarRow: View {
     var settings: AppSettings
     var snapshot: Snapshot
     var history: MetricHistory
+    var updateWaiting = false
     @Environment(\.colorScheme) private var scheme
-    var body: some View {
+    private var label: MenuBarLabel {
         let dark = scheme == .dark
-        let image = MenuBarRenderer.image(for: MenuBarLabel(snapshot: snapshot, history: history, settings: settings, ink: dark ? .white : .black, dark: dark))
+        var label = MenuBarLabel(snapshot: snapshot, history: history, settings: settings, ink: dark ? .white : .black, dark: dark)
+        label.updateWaiting = updateWaiting
+        return label
+    }
+    var body: some View {
+        let image = MenuBarRenderer.image(for: label)
         Image(nsImage: image).renderingMode(image.isTemplate ? .template : .original).foregroundStyle(.primary)
     }
 }
@@ -285,6 +291,28 @@ MainActor.assumeIsolated {
     services.updaterAvailable = true
     services.lastCheckFoundNothing = true
     services.lastUpdateCheck = Date()
+    // An update through its states (`UpdateState`): Settings › Updates, the update window, the
+    // overview's strip, About and the menu bar dot. The notes are the 1.0.0 entry's, as the feed
+    // carries them; version, size and date are an example.
+    let offer = UpdateOffer(
+        version: "1.1.0", size: 4_485_730, date: Date(timeIntervalSince1970: 1_796_342_400),
+        notes: ReleaseNotes.parse(ReleaseNotes.html(for: Changelog.entries[0].version) ?? ""))
+    let updateStates: [(String, UpdateState)] = [
+        ("available", .available(offer)), ("downloading", .downloading(offer, received: 2_900_000, expected: 4_485_730)),
+        ("ready", .ready(offer)), ("failed", .failed("The network connection was lost.")),
+    ]
+    for (name, state) in updateStates {
+        services.update = state
+        render(SettingsView(pane: .updates), "settings-updates-\(name)", width: settingsSize.width, height: settingsSize.height)
+        if state.offer != nil { render(UpdateView(), "update-window-\(name)") }
+    }
+    services.update = .available(offer)
+    render(PopoverView(kind: .overview), "popover-overview-update")
+    render(AboutView(), "about-update")
+    render(MenuBarRow(settings: settings, snapshot: monitor.snapshot, history: monitor.history, updateWaiting: true).padding(6), "menubar-update")
+    services.update = .ready(offer)
+    render(PopoverView(kind: .overview), "popover-overview-update-ready")
+    services.update = .idle
     // Settings › Menu Bar with each item selected (Temperature: the design's second board); then
     // CPU without its label, a hidden item selected, and metric colours.
     for kind in MenuItemKind.allCases where kind != .cpu {
