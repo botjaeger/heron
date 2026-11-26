@@ -514,39 +514,71 @@ private struct SensorCardPills: View {
         let rest = available.filter { !picked.contains($0) }
         WrapLayout(spacing: 6) {
             ForEach(picked.filter(available.contains) + rest, id: \.self) { item in
-                let order = picked.firstIndex(of: item)
-                let full = order == nil && picked.count >= SensorCardItem.limit
-                Button {
+                SensorCardPill(item: item, order: picked.firstIndex(of: item), pickedCount: picked.count) {
                     settings.sensorCard = SensorCardItem.toggled(settings.sensorCard, item)
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(item.title).font(.system(size: 12, weight: .medium))
-                        Text(order.map { "\($0 + 1)" } ?? "+").font(.system(size: 11, weight: .bold)).monospacedDigit()
-                            .opacity(order == nil ? 1 : 0.85)
-                            .foregroundStyle(order == nil ? Theme.muted : .white)
-                    }
-                    .foregroundStyle(order == nil ? (full ? Theme.muted : Color.primary) : .white)
-                    .padding(.horizontal, 10).frame(height: 26)
-                    // Radius 10, not a capsule: an outlined capsule this size drew stray edges at its ends.
-                    .background {
-                        if order == nil {
-                            RoundedRectangle(cornerRadius: 10).inset(by: 0.5).stroke(Theme.muted.opacity(0.7), lineWidth: 1)
-                        } else {
-                            RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: NSColor(hex: Theme.Palette.accent)))
-                        }
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .buttonStyle(.plain)
-                .disabled(full)
-                .help(full ? "Up to 5 temperatures" : order != nil && picked.count == 1 ? "The card keeps at least one temperature" : "")
-                .accessibilityLabel(item.title)
-                .accessibilityValue(order.map { "\($0 + 1) of \(picked.count)" } ?? "Not shown")
-                .accessibilityAddTraits(order == nil ? [] : .isSelected)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Temperatures on the card")
+    }
+}
+
+/// One pill of `SensorCardPills`. Its own view, with each value worked out apart: written as one
+/// chain inside the `ForEach`, Swift 6.3 (Xcode 26) gave up type-checking it (release build,
+/// 2026-11-26).
+private struct SensorCardPill: View {
+    var item: SensorCardItem
+    /// Its place among the picked temperatures; nil when it is not on the card.
+    var order: Int?
+    var pickedCount: Int
+    var toggle: () -> Void
+
+    private var full: Bool { order == nil && pickedCount >= SensorCardItem.limit }
+    private var mark: String { order.map { String($0 + 1) } ?? "+" }
+    private var ink: Color {
+        if order != nil { return .white }
+        return full ? Theme.muted : Color.primary
+    }
+    private var markInk: Color { order == nil ? Theme.muted : .white }
+    private var hint: String {
+        if full { return "Up to 5 temperatures" }
+        if order != nil && pickedCount == 1 { return "The card keeps at least one temperature" }
+        return ""
+    }
+    private var spoken: String { order.map { "\($0 + 1) of \(pickedCount)" } ?? "Not shown" }
+    private var traits: AccessibilityTraits { order == nil ? [] : .isSelected }
+
+    var body: some View {
+        Button(action: toggle) { label }
+            .buttonStyle(.plain)
+            .disabled(full)
+            .help(hint)
+            .accessibilityLabel(item.title)
+            .accessibilityValue(spoken)
+            .accessibilityAddTraits(traits)
+    }
+
+    private var label: some View {
+        HStack(spacing: 6) {
+            Text(item.title).font(.system(size: 12, weight: .medium))
+            Text(mark).font(.system(size: 11, weight: .bold)).monospacedDigit()
+                .opacity(order == nil ? 1 : 0.85)
+                .foregroundStyle(markInk)
+        }
+        .foregroundStyle(ink)
+        .padding(.horizontal, 10).frame(height: 26)
+        // Radius 10, not a capsule: an outlined capsule this size drew stray edges at its ends.
+        .background { background }
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder private var background: some View {
+        if order == nil {
+            RoundedRectangle(cornerRadius: 10).inset(by: 0.5).stroke(Theme.muted.opacity(0.7), lineWidth: 1)
+        } else {
+            RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: NSColor(hex: Theme.Palette.accent)))
+        }
     }
 }
 
