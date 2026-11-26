@@ -43,8 +43,12 @@ It idles at about 1% CPU. Distributed outside the Mac App Store (it reads privat
 
 ## Install
 
-Requires macOS 14 or later on Apple silicon. Building needs Swift 6 (Xcode 16 or later, or the
-Swift toolchain).
+Requires macOS 14 or later on Apple silicon. Download `Heron.dmg` from the
+[latest release](https://github.com/botjaeger/heron/releases/latest), open it and drag Heron to
+Applications. It is not notarized, so the first time it opens, allow it in System Settings ›
+Privacy & Security › Open Anyway.
+
+Or build it: that needs Swift 6.2 (Xcode 26 or later, or the Swift toolchain).
 
 ```sh
 packaging/install.sh      # builds and installs /Applications/Heron.app; a running copy reloads itself

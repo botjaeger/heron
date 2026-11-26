@@ -1,0 +1,68 @@
+# Builds Heron.dmg and publishes it as a GitHub release whenever a version tag (v1.2.0) is pushed;
+# scripts/release.sh pushes that tag. The website's Download button fetches the newest release's
+# Heron.dmg (releases/latest/download/Heron.dmg). A tag with a suffix (v1.2.0-beta.1) becomes a
+# pre-release, which that link skips.
+#
+# Run it by hand (Actions › Release › Run workflow) to build the disk image without releasing:
+# it is kept as the run's artifact. The gates already ran before the push (pre-push hook), so this
+# only builds.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dmg:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the build number is the commit count
+
+      - name: Use the newest released Xcode on the runner
+        run: |
+          xcode="$(ls -d /Applications/Xcode_*.app | grep -iv -e beta -e rc | sort -V | tail -1)"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          swift --version
+
+      - name: Version
+        id: v
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then version="${GITHUB_REF_NAME#v}"; else version="0.0.0-dev"; fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "Not a version tag: $GITHUB_REF_NAME"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build Heron.dmg
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          BUILD: ${{ steps.v.outputs.build }}
+        run: packaging/make-dmg.sh
+
+      - name: Keep the disk image (manual run)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Heron-dmg
+          path: dist/Heron.dmg
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          pre=()
+          [[ "$VERSION" == *-* ]] && pre=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/Heron.dmg --title "Heron $VERSION" --generate-notes --verify-tag "${pre[@]}"

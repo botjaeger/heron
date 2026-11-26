@@ -46,7 +46,13 @@ swift run heron-probe                         # every reading once
 packaging/make-app.sh && codesign --verify --deep --strict dist/Heron.app
 HERON_SMOKE_SECONDS=8 swift run Heron         # end to end; opens real windows (see below)
 packaging/install.sh                          # last: installs /Applications/Heron.app; the running one reloads itself
+packaging/make-dmg.sh                         # dist/Heron.dmg: Heron.app plus a link to Applications
+scripts/release.sh <version>                  # only when asked to release: tags the pushed HEAD and pushes the tag
 ```
+
+Every release goes out through `scripts/release.sh`: the pushed tag runs
+`.github/workflows/release.yml`, which builds `Heron.dmg` and publishes the release with it, the
+file the website's Download button fetches (`docs.md` › Distribution).
 
 Run the full set once, after all work is done, before saying it is finished. Name each gate and
 its counts in the report. Then run `packaging/install.sh` after every finished change: the

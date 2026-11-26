@@ -27,8 +27,8 @@ Sources/
   heron-probe/  CLI that prints every reading once.
   heron-snap/   Renders every screen to PNG (light and dark) and the app icon.
 Tests/          HeronCoreTests (samplers, maths, AI parsing) and HeronUITests (views, settings, guards).
-packaging/      Info.plist, AppIcon.icns, make-app.sh, install.sh
-scripts/        check.sh (the gate runner), install-hooks.sh
+packaging/      Info.plist, AppIcon.icns, make-app.sh, install.sh, make-dmg.sh
+scripts/        check.sh (the gate runner), install-hooks.sh, release.sh
 site/           The website: index.html and real screen renders (see Website)
 ```
 
@@ -216,8 +216,19 @@ repo). `scripts/check.sh` checks that every local file the page links to exists.
 Without an Apple Developer account, `packaging/make-app.sh` makes an ad-hoc signed app. People who
 download it must allow it once in System Settings › Privacy & Security before it opens.
 
+Every release ships a disk image on GitHub Releases, built by GitHub Actions. After the release
+commit is pushed (so the pre-push gates ran on it), `scripts/release.sh 1.2.0` tags it `v1.2.0`
+and pushes the tag. `.github/workflows/release.yml` then runs `packaging/make-dmg.sh` (Heron.app
+plus a link to Applications, mounted and checked) on a macOS runner with its newest released
+Xcode, and publishes the release with `Heron.dmg` attached. The asset keeps one name, so the
+website's Download button (`releases/latest/download/Heron.dmg`) always gets the newest release; a
+version with a suffix (`1.2.0-beta.1`) is published as a pre-release, which that link skips.
+Running the workflow by hand (Actions › Release › Run workflow) builds the disk image without
+releasing it; `packaging/make-dmg.sh` builds the same one on this Mac.
+
 With a Developer ID: `SIGN_ID="Developer ID Application: …" packaging/make-app.sh`, then notarize
-the zip with `xcrun notarytool submit … --wait` and `xcrun stapler staple dist/Heron.app`.
+the zip with `xcrun notarytool submit … --wait` and `xcrun stapler staple dist/Heron.app`. For
+releases, the certificate and notarization would move into the workflow as repository secrets.
 
 The app icon is drawn from code (`HeronShape`, `HeronMark`); regenerate it with
 `swift run heron-snap --icon packaging/AppIcon.icns`.
